@@ -1,185 +1,115 @@
-import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import streamlit as st
 
-st.set_page_config(page_title="Análise de Fundos", layout="centered")
+# ==========================
+# 📘 CONFIGURAÇÕES INICIAIS
+# ==========================
+st.set_page_config(page_title="Análise de Balancete", layout="wide")
 
-st.title("📊 Ferramenta de Análise de Fundos – Bradesco Crédito Instituições Financeiras")
-st.markdown("---")
+st.title("📊 Análise de Balancete de Fundos")
+st.write("Este painel consolida automaticamente as categorias Compromissadas, Títulos Públicos e Títulos Privados com base na planilha 2 (balancete).")
 
-# ==============================
-# Funções auxiliares
-# ==============================
+# Upload do arquivo Excel
+uploaded_file = st.file_uploader("Carregue a planilha 2 (balancete)", type=["xlsx", "xls"])
 
-def converter_valor_brasileiro(valor):
-    """Converte string com formato brasileiro em inteiro (sem centavos)."""
-    if pd.isna(valor):
-        return 0
-    if isinstance(valor, (int, float)):
-        return int(valor)
-    valor = str(valor).strip().replace(".", "").split(",")[0]
-    try:
-        return int(valor)
-    except:
-        return 0
+if uploaded_file:
+    # ==========================
+    # 📂 LEITURA DO ARQUIVO
+    # ==========================
+    df = pd.read_excel(uploaded_file)
 
+    # Padronização dos nomes das colunas
+    df.columns = [col.strip().lower() for col in df.columns]
 
-# ==============================
-# PARTE 1 - PLANILHA 1
-# ==============================
+    # Tentando identificar colunas essenciais
+    col_codigo = next((c for c in df.columns if "cód" in c or "codigo" in c or "code" in c), None)
+    col_desc = next((c for c in df.columns if "descr" in c or "conta" in c or "nome" in c), None)
+    col_valor = next((c for c in df.columns if "valor" in c or "saldo" in c), None)
 
-st.header("📈 Parte 1 – Cotistas e Patrimônio Líquido")
-
-uploaded_file1 = st.file_uploader(
-    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx):",
-    type=["xlsx"],
-    key="planilha1"
-)
-
-if uploaded_file1:
-    df1 = pd.read_excel(uploaded_file1)
-    df1.columns = df1.columns.str.strip().str.lower()
-
-    # Normaliza nomes esperados
-    df1.rename(columns={
-        "data": "data",
-        "cota": "cota",
-        "variação da cota diária": "variacao_cota",
-        "patrimônio": "patrimonio",
-        "captação": "captacao",
-        "resgate": "resgate",
-        "cotistas": "cotistas"
-    }, inplace=True)
-
-    # Converte colunas numéricas
-    for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
-        df1[col] = df1[col].apply(converter_valor_brasileiro)
-
-    # Extrai métricas corretamente
-    patrimonio_final = df1["patrimonio"].iloc[0]            # 1ª linha = data mais recente
-    patrimonio_inicial = df1["patrimonio"].iloc[-1]         # última linha = data mais antiga
-    variacao_patrimonio = patrimonio_final - patrimonio_inicial
-
-    cotistas_finais = df1["cotistas"].iloc[0]
-    captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
-
-    st.subheader("📊 Resultados — Cotistas & Patrimônio")
-    st.metric("Cotistas (data final)", f"{cotistas_finais:,}".replace(",", "."))
-    st.metric("Patrimônio (final)", f"R$ {patrimonio_final:,}".replace(",", "."))
-    st.metric("Captação líquida (período)", f"R$ {captacoes_liquidas:,}".replace(",", "."))
-    st.metric("Variação do PL (final - inicial)", f"R$ {variacao_patrimonio:,}".replace(",", "."))
-
-    st.divider()
-
-
-# ==============================
-# PARTE 2 - PLANILHA 2
-# ==============================
-
-st.header("📘 Parte 2 – Balancete")
-
-uploaded_file2 = st.file_uploader(
-    "Envie a planilha de Balancete (.xlsx):",
-    type=["xlsx"],
-    key="planilha2"
-)
-
-if uploaded_file2:
-    df2 = pd.read_excel(uploaded_file2)
-    df2.columns = df2.columns.str.strip()
-
-    # Converte valores
-    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
-
-    # ==============================
-    # Dicionários de busca
-    # ==============================
-
-    # Operações compromissadas — buscar apenas uma linha específica
-    operacoes_nome = "APLICAÇÕES EM OPERAÇÕES COMPROMISSADAS"
-
-    # Títulos públicos e privados — listar linha a linha
-    titulos_publicos = [
-        "TÍTULOS PÚBLICOS FEDERAIS - TESOURO NACIONAL",
-        "LETRAS FINANCEIRAS DO TESOURO",
-        "LETRAS DO TESOURO NACIONAL",
-        "NOTAS DO TESOURO NACIONAL"
-    ]
-
-    titulos_privados = [
-        "LETRAS FINANCEIRAS",
-        "DEBÊNTURES",
-        "LETRAS FINANCEIRAS SUBORDINADAS",
-        "COTAS DE FUNDOS DE INVESTIMENTO",
-        "COTAS DE FUNDO DE RENDA FIXA",
-        "COTAS DE FUNDO EM DIREITOS CREDITÓRIOS",
-        "CERTIFICADOS DE DEPÓSITO BANCÁRIO",
-        "CERTIFICADOS DE RECEBÍVEIS IMOBILIÁRIOS",
-        "COTAS DE FUNDO MULTIMERCADO",
-        "TÍTULOS DE RENDA VARIÁVEL",
-        "AÇÕES DE COMPANHIAS ABERTAS",
-        "COTAS DE FUNDO IMOBILIÁRIO",
-        "APLICAÇÕES EM TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR",
-        "OUTROS TÍTULOS PRIVADOS - RENDA FIXA",
-        "BDR - CERTIFICADO DE DEPÓSITO DE AÇÕES",
-        "COTAS DE FUNDO DE INVESTIMENTO ÍNDICE DE MERCADO"
-    ]
-
-    # ==============================
-    # Cálculos
-    # ==============================
-
-    total_ativo = df2.loc[df2["Descrição da Conta"].str.contains("REALIZÁVEL", case=False, na=False), "Valor Saldo"].sum()
-
-    # Operações compromissadas — apenas uma linha
-    valor_operacoes = df2.loc[df2["Descrição da Conta"] == operacoes_nome, "Valor Saldo"].sum()
-
-    # Títulos públicos e privados — mostrar cada linha com valor
-    publicos_filtrados = df2[df2["Descrição da Conta"].isin(titulos_publicos)][["Descrição da Conta", "Valor Saldo"]]
-    privados_filtrados = df2[df2["Descrição da Conta"].isin(titulos_privados)][["Descrição da Conta", "Valor Saldo"]]
-
-    st.subheader("📊 Resultados — Balancete")
-    st.metric("Total de Ativos (Realizável)", f"R$ {total_ativo:,}".replace(",", "."))
-    st.metric("Aplicações em Operações Compromissadas", f"R$ {valor_operacoes:,}".replace(",", "."))
-
-    # Exibe tabelas detalhadas
-    st.write("### 💛 Títulos Públicos")
-    st.dataframe(publicos_filtrados, use_container_width=True)
-
-    st.write("### 💚 Títulos Privados")
-    st.dataframe(privados_filtrados, use_container_width=True)
-
-    # ==============================
-    # Gráfico de pizza ajustado
-    # ==============================
-
-    st.divider()
-    st.subheader("📉 Composição da Carteira (apenas categorias)")
-
-    soma_publicos = publicos_filtrados["Valor Saldo"].sum()
-    soma_privados = privados_filtrados["Valor Saldo"].sum()
-
-    labels = ["Operações Compromissadas", "Títulos Públicos", "Títulos Privados"]
-    values = [valor_operacoes, soma_publicos, soma_privados]
-
-    if sum(values) == 0:
-        st.info("Sem valores para composição (todas as categorias com valor zero).")
+    if not all([col_codigo, col_desc, col_valor]):
+        st.error("❌ Não foi possível identificar as colunas de código, descrição e valor. Verifique os nomes na planilha.")
     else:
-        fig, ax = plt.subplots(figsize=(3, 3))
-        wedges, texts, autotexts = ax.pie(
-            values,
-            autopct="%1.1f%%",
-            startangle=90,
-            textprops={"fontsize": 8}
+        df = df[[col_codigo, col_desc, col_valor]].copy()
+        df.columns = ["codigo", "descricao", "valor"]
+
+        # Remove linhas vazias ou nulas
+        df.dropna(subset=["descricao", "valor"], inplace=True)
+        df["descricao"] = df["descricao"].astype(str).str.strip()
+        df["codigo"] = df["codigo"].astype(str).str.strip()
+
+        # ==========================
+        # 🧠 CLASSIFICAÇÃO AUTOMÁTICA
+        # ==========================
+        categorias = {
+            "Compromissadas": ["compromissadas"],
+            "Títulos Públicos": ["tesouro", "lft", "ltn", "ntn", "título público"],
+            "Títulos Privados": ["debênture", "debentures", "fundo", "fii", "fidc", "cri", "cra", "cotas"]
+        }
+
+        def classificar_conta(descricao):
+            desc = descricao.lower()
+            for cat, termos in categorias.items():
+                if any(t in desc for t in termos):
+                    return cat
+            return None
+
+        df["categoria"] = df["descricao"].apply(classificar_conta)
+
+        # ==========================
+        # 🧮 EVITA DUPLICAÇÕES
+        # ==========================
+        # Identifica hierarquia (contas pai e filhas)
+        # Exemplo: 1.1 é pai de 1.1.1, 1.1.2
+        def is_child(code1, code2):
+            return code2.startswith(code1 + ".") and code1 != code2
+
+            # Função para eliminar valores de contas "pai"
+        def remover_pais(df):
+            pais = []
+            for code in df["codigo"]:
+                filhos = [c for c in df["codigo"] if is_child(code, c)]
+                if filhos:
+                    pais.append(code)
+            return df[~df["codigo"].isin(pais)]
+
+        df_sem_pais = remover_pais(df)
+
+        # ==========================
+        # 📊 CONSOLIDAÇÃO FINAL
+        # ==========================
+        resumo = (
+            df_sem_pais[df_sem_pais["categoria"].notna()]
+            .groupby("categoria", as_index=False)["valor"]
+            .sum()
         )
-        ax.legend(
-            wedges,
-            labels,
-            title="Categorias",
-            loc="center left",
-            bbox_to_anchor=(1, 0, 0.5, 1),
-            fontsize=8,
-            title_fontsize=9
-        )
-        ax.axis("equal")
+
+        # Exibe os resultados
+        st.subheader("📈 Resultado Consolidado")
+        st.dataframe(resumo.style.format({"valor": "R$ {:,.2f}"}))
+
+        # ==========================
+        # 📉 GRÁFICO
+        # ==========================
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.bar(resumo["categoria"], resumo["valor"])
+        ax.set_title("Distribuição por Categoria")
+        ax.set_ylabel("Valor (R$)")
+        ax.set_xlabel("")
+        ax.tick_params(axis="x", rotation=15)
         st.pyplot(fig)
+
+        # ==========================
+        # 💾 DOWNLOAD OPCIONAL
+        # ==========================
+        csv = resumo.to_csv(index=False, sep=";").encode("utf-8")
+        st.download_button(
+            label="📥 Baixar resumo em CSV",
+            data=csv,
+            file_name="resumo_balancete.csv",
+            mime="text/csv"
+        )
+
+else:
+    st.info("⬆️ Carregue o arquivo da planilha 2 (balancete) para iniciar a análise.")
