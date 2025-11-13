@@ -1,36 +1,102 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
-# =======================
-# ⚙️ CONFIGURAÇÕES INICIAIS
-# =======================
-st.set_page_config(page_title="Análise de Ativos Financeiros", layout="wide")
-st.title("📊 Análise da Carteira de Ativos Financeiros")
+st.set_page_config(page_title="Análise de Fundos", layout="centered")
 
-# =======================
-# 📂 LEITURA DO ARQUIVO
-# =======================
-uploaded_file = st.file_uploader("Envie o arquivo Balancete.xlsx", type=["xlsx"])
+st.title("📊 Ferramenta de Análise de Fundos – Bradesco Crédito Instituições Financeiras")
+st.markdown("---")
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file, sheet_name="Balancete")
+# ==============================
+# Funções auxiliares
+# ==============================
 
-    # Normaliza colunas
-    df.columns = [col.strip().upper() for col in df.columns]
-    df = df.rename(columns={
-        "CONTA": "codigo",
-        "NOME": "nome",
-        "VALOR": "valor"
-    })
+def converter_valor_brasileiro(valor):
+    """Converte string com formato brasileiro em inteiro (sem centavos)."""
+    if pd.isna(valor):
+        return 0
+    if isinstance(valor, (int, float)):
+        return int(valor)
+    valor = str(valor).strip().replace(".", "").split(",")[0]
+    try:
+        return int(valor)
+    except:
+        return 0
 
-    # Mantém apenas colunas relevantes
-    df = df[["codigo", "nome", "valor"]]
-    df["codigo"] = df["codigo"].astype(str)
-    
-    # =======================
-    # 🧩 DEFINIÇÃO DAS CONTAS
-    # =======================
-    compromissadas = ["APLICAÇÕES EM OPERAÇÕES COMPROMISSADAS"]
+
+# ==============================
+# PARTE 1 - PLANILHA 1
+# ==============================
+
+st.header("📈 Parte 1 – Cotistas e Patrimônio Líquido")
+
+uploaded_file1 = st.file_uploader(
+    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx):",
+    type=["xlsx"],
+    key="planilha1"
+)
+
+if uploaded_file1:
+    df1 = pd.read_excel(uploaded_file1)
+    df1.columns = df1.columns.str.strip().str.lower()
+
+    # Normaliza nomes esperados
+    df1.rename(columns={
+        "data": "data",
+        "cota": "cota",
+        "variação da cota diária": "variacao_cota",
+        "patrimônio": "patrimonio",
+        "captação": "captacao",
+        "resgate": "resgate",
+        "cotistas": "cotistas"
+    }, inplace=True)
+
+    # Converte colunas numéricas
+    for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
+        df1[col] = df1[col].apply(converter_valor_brasileiro)
+
+    # Extrai métricas corretamente
+    patrimonio_final = df1["patrimonio"].iloc[0]            # 1ª linha = data mais recente
+    patrimonio_inicial = df1["patrimonio"].iloc[-1]         # última linha = data mais antiga
+    variacao_patrimonio = patrimonio_final - patrimonio_inicial
+
+    cotistas_finais = df1["cotistas"].iloc[0]
+    captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
+
+    st.subheader("📊 Resultados — Cotistas & Patrimônio")
+    st.metric("Cotistas (data final)", f"{cotistas_finais:,}".replace(",", "."))
+    st.metric("Patrimônio (final)", f"R$ {patrimonio_final:,}".replace(",", "."))
+    st.metric("Captação líquida (período)", f"R$ {captacoes_liquidas:,}".replace(",", "."))
+    st.metric("Variação do PL (final - inicial)", f"R$ {variacao_patrimonio:,}".replace(",", "."))
+
+    st.divider()
+
+
+# ==============================
+# PARTE 2 - PLANILHA 2
+# ==============================
+
+st.header("📘 Parte 2 – Balancete")
+
+uploaded_file2 = st.file_uploader(
+    "Envie a planilha de Balancete (.xlsx):",
+    type=["xlsx"],
+    key="planilha2"
+)
+
+if uploaded_file2:
+    df2 = pd.read_excel(uploaded_file2)
+    df2.columns = df2.columns.str.strip()
+
+    # Converte valores
+    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
+    df2["Conta"] = df2["Conta"].astype(str)
+
+    # ==============================
+    # Dicionários de busca
+    # ==============================
+
+    operacoes_nome = "APLICAÇÕES EM OPERAÇÕES COMPROMISSADAS"
 
     titulos_publicos = [
         "TÍTULOS PÚBLICOS FEDERAIS - TESOURO NACIONAL",
@@ -58,62 +124,83 @@ if uploaded_file:
         "COTAS DE FUNDO DE INVESTIMENTO ÍNDICE DE MERCADO"
     ]
 
-    # =======================
-    # 🔍 FUNÇÕES AUXILIARES
-    # =======================
-    def buscar_subcontas(df, termo):
-        """
-        Busca linhas do balancete que contenham determinado termo no nome.
-        Evita duplicar subtotais (somente filhos diretos).
-        """
-        encontrados = df[df["nome"].str.contains(termo, case=False, na=False)]
-        # Remove potenciais duplicatas
-        encontrados = encontrados.drop_duplicates(subset=["nome"], keep="first")
-        return encontrados
+    # ==============================
+    # Função para identificar subcontas diretas
+    # ==============================
 
-    def exibir_grupo(titulo, lista_termos):
-        """
-        Exibe o grupo (pai) com subtotais e detalhamento no Streamlit.
-        """
-        st.markdown(f"### {titulo}")
+    def filtrar_subcontas(df, termos):
+        """Filtra linhas cujos nomes correspondem à lista de termos,
+        evitando duplicar subníveis (netos)."""
+        encontrados = df[df["Descrição da Conta"].isin(termos)].copy()
 
-        total_grupo = 0
-        for termo in lista_termos:
-            sub_df = buscar_subcontas(df, termo)
-            if not sub_df.empty:
-                subtotal = sub_df["valor"].sum()
-                total_grupo += subtotal
+        # Remove duplicações com base em códigos de subconta
+        codigos = encontrados["Conta"].astype(str).tolist()
+        subcontas = []
+        for codigo in codigos:
+            # considera como subconta direta se não houver outra conta
+            # cujo código seja prefixo menor desse
+            if not any(codigo.startswith(outra) and codigo != outra for outra in codigos):
+                subcontas.append(codigo)
+        return df[df["Conta"].isin(subcontas)]
 
-                with st.expander(f"📂 {termo} — **R$ {subtotal:,.2f}**", expanded=False):
-                    st.dataframe(sub_df[["nome", "valor"]].style.format({"valor": "R$ {:,.2f}"}), hide_index=True)
+    # ==============================
+    # Cálculos
+    # ==============================
 
-        st.markdown(f"**💰 Total {titulo}: R$ {total_grupo:,.2f}**")
-        st.markdown("---")
-        return total_grupo
+    total_ativo = df2.loc[df2["Descrição da Conta"].str.contains("REALIZÁVEL", case=False, na=False), "Valor Saldo"].sum()
 
-    # =======================
-    # 🧾 EXIBIÇÃO DOS RESULTADOS
-    # =======================
-    col1, col2, col3 = st.columns(3)
+    valor_operacoes = df2.loc[df2["Descrição da Conta"] == operacoes_nome, "Valor Saldo"].sum()
 
-    with col1:
-        total_compromissadas = exibir_grupo("Aplicações em Operações Compromissadas", compromissadas)
-    with col2:
-        total_publicos = exibir_grupo("Títulos Públicos", titulos_publicos)
-    with col3:
-        total_privados = exibir_grupo("Títulos Privados", titulos_privados)
+    publicos_filtrados = filtrar_subcontas(df2, titulos_publicos)[["Descrição da Conta", "Valor Saldo"]]
+    privados_filtrados = filtrar_subcontas(df2, titulos_privados)[["Descrição da Conta", "Valor Saldo"]]
 
-    # =======================
-    # 📊 RESUMO FINAL
-    # =======================
-    st.subheader("Resumo Consolidado")
-    resumo_df = pd.DataFrame({
-        "Categoria": ["Compromissadas", "Títulos Públicos", "Títulos Privados"],
-        "Total (R$)": [total_compromissadas, total_publicos, total_privados]
-    })
+    soma_publicos = publicos_filtrados["Valor Saldo"].sum()
+    soma_privados = privados_filtrados["Valor Saldo"].sum()
 
-    st.dataframe(resumo_df.style.format({"Total (R$)": "R$ {:,.2f}"}), hide_index=True)
-    st.markdown(f"### 💼 Total Geral da Carteira: **R$ {(total_compromissadas + total_publicos + total_privados):,.2f}**")
+    # ==============================
+    # Exibição Streamlit (mantendo layout original)
+    # ==============================
 
-else:
-    st.info("Envie o arquivo **Balancete.xlsx** para iniciar a análise.")
+    st.subheader("📊 Resultados — Balancete")
+    st.metric("Total de Ativos (Realizável)", f"R$ {total_ativo:,}".replace(",", "."))
+    st.metric("Aplicações em Operações Compromissadas", f"R$ {valor_operacoes:,}".replace(",", "."))
+
+    st.write("### 💛 Títulos Públicos")
+    st.dataframe(publicos_filtrados, use_container_width=True)
+    st.markdown(f"**Subtotal Títulos Públicos: R$ {soma_publicos:,.2f}**")
+
+    st.write("### 💚 Títulos Privados")
+    st.dataframe(privados_filtrados, use_container_width=True)
+    st.markdown(f"**Subtotal Títulos Privados: R$ {soma_privados:,.2f}**")
+
+    # ==============================
+    # Gráfico de pizza
+    # ==============================
+
+    st.divider()
+    st.subheader("📉 Composição da Carteira (apenas categorias)")
+
+    labels = ["Operações Compromissadas", "Títulos Públicos", "Títulos Privados"]
+    values = [valor_operacoes, soma_publicos, soma_privados]
+
+    if sum(values) == 0:
+        st.info("Sem valores para composição (todas as categorias com valor zero).")
+    else:
+        fig, ax = plt.subplots(figsize=(3, 3))
+        wedges, texts, autotexts = ax.pie(
+            values,
+            autopct="%1.1f%%",
+            startangle=90,
+            textprops={"fontsize": 8}
+        )
+        ax.legend(
+            wedges,
+            labels,
+            title="Categorias",
+            loc="center left",
+            bbox_to_anchor=(1, 0, 0.5, 1),
+            fontsize=8,
+            title_fontsize=9
+        )
+        ax.axis("equal")
+        st.pyplot(fig)
