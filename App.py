@@ -205,18 +205,36 @@ if cotistas_file and balancete_file:
         d4.metric("Títulos Privados (R$)", f"{int(soma_privados):,}".replace(",", "."))
 
         # Gráfico de pizza menor (figsize reduzido)
-        st.divider()
-        st.subheader("📊 Composição da Carteira (apenas categorias)")
+        # Gráfico de pizza ajustado
+st.divider()
+st.subheader("📊 Composição da Carteira (apenas categorias)")
 
-        labels = ["Operações Compromissadas", "Títulos Públicos", "Títulos Privados"]
-        values = [soma_operacoes, soma_publicos, soma_privados]
-        # evitar slice vazio/zeros que quebrem o pie
-        if sum(values) == 0:
-            st.info("Sem valores para composição (todas as categorias com valor zero).")
-        else:
-            fig, ax = plt.subplots(figsize=(3, 3))  # tamanho reduzido
-            ax.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
-            ax.axis("equal")
-            st.pyplot(fig)
+labels = ["Operações Compromissadas", "Títulos Públicos", "Títulos Privados"]
+values = [soma_operacoes, soma_publicos, soma_privados]
+
+if sum(values) == 0:
+    st.info("Sem valores para composição (todas as categorias com valor zero).")
+else:
+    fig, ax = plt.subplots(figsize=(3, 3))  # tamanho pequeno
+    wedges, texts, autotexts = ax.pie(
+        values,
+        autopct="%1.1f%%",
+        startangle=90,
+        textprops={"fontsize": 8},  # reduz o tamanho dos textos
+    )
+
+    # adiciona legenda lateral compacta
+    ax.legend(
+        wedges,
+        labels,
+        title="Categorias",
+        loc="center left",
+        bbox_to_anchor=(1, 0, 0.5, 1),
+        fontsize=8,
+        title_fontsize=9
+    )
+
+    ax.axis("equal")
+    st.pyplot(fig)
 
         st.success("✅ Análise concluída com sucesso!")
