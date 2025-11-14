@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Análise de Fundos", layout="centered")
 
-st.title("📊 Ferramenta de Análise de Fundos – Bradesco Crédito Instituições Financeiras")
+st.title("Ferramenta de Análise de Fundos")
 st.markdown("---")
 
 # ==============================
