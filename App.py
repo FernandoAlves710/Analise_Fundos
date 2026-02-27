@@ -68,7 +68,7 @@ if uploaded_file1:
     st.divider()
 
 # ==============================
-# PARTE 2 – BALANCETE (VERSÃO INSTITUCIONAL)
+# PARTE 2 – BALANCETE (VERSÃO FINAL AJUSTADA)
 # ==============================
 
 import numpy as np
@@ -84,7 +84,6 @@ uploaded_file2 = st.file_uploader(
 if uploaded_file2:
 
     df2 = pd.read_excel(uploaded_file2)
-    df2.columns = df2.columns.str.strip()
 
     # ==============================
     # LIMPEZA
@@ -100,16 +99,17 @@ if uploaded_file2:
         .str.strip()
     )
 
-    df2["Descricao"] = df2["Descricao"].astype(str).str.upper()
+    df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
     # ==============================
-    # FILTRAR SOMENTE ATIVO
+    # FILTRAR APENAS ATIVO
     # ==============================
 
     df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
     # ==============================
     # IDENTIFICAR CONTAS ANALÍTICAS
+    # (não possuem subcontas abaixo delas)
     # ==============================
 
     contas = df_ativo["Conta_limpa"].tolist()
@@ -126,7 +126,7 @@ if uploaded_file2:
     df_analitico = df_ativo[df_ativo["Conta_Analitica"] == True].copy()
 
     # ==============================
-    # FILTRAR APENAS TVM (13)
+    # FILTRAR TVM (contas iniciadas em 13)
     # ==============================
 
     df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
@@ -138,23 +138,23 @@ if uploaded_file2:
     def classificar(descricao):
 
         if any(p in descricao for p in ["COMPROMISSADA", "REPO"]):
-            return "Compromissadas"
+            return "Operações Compromissadas"
 
         if any(p in descricao for p in [
-            "TESOURO", "LTN", "LFT", "NTN", "TITULO PUBLICO"
+            "TESOURO", "LTN", "LFT", "NTN", "TÍTULO PÚBLICO"
         ]):
-            return "Titulos Publicos"
+            return "Títulos Públicos"
 
         if any(p in descricao for p in [
             "CDB", "DEBENTURE", "CRI", "CRA",
             "LETRA FINANCEIRA", "NOTA COMERCIAL",
             "FIDC", "DPGE"
         ]):
-            return "Titulos Privados"
+            return "Títulos Privados"
 
         return "Outros"
 
-    df_tvm["Categoria"] = df_tvm["Descricao"].apply(classificar)
+    df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
     # ==============================
     # CONSOLIDAÇÃO
@@ -169,17 +169,17 @@ if uploaded_file2:
     total_tvm = df_tvm["Valor Saldo"].sum()
 
     publico = consolidado.loc[
-        consolidado["Categoria"] == "Titulos Publicos",
+        consolidado["Categoria"] == "Títulos Públicos",
         "Valor Saldo"
     ].sum()
 
     privado = consolidado.loc[
-        consolidado["Categoria"] == "Titulos Privados",
+        consolidado["Categoria"] == "Títulos Privados",
         "Valor Saldo"
     ].sum()
 
     compromissadas = consolidado.loc[
-        consolidado["Categoria"] == "Compromissadas",
+        consolidado["Categoria"] == "Operações Compromissadas",
         "Valor Saldo"
     ].sum()
 
@@ -191,36 +191,22 @@ if uploaded_file2:
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric(
-        "Títulos Públicos",
-        f"R$ {publico:,.0f}"
-    )
-
-    col2.metric(
-        "Títulos Privados",
-        f"R$ {privado:,.0f}"
-    )
-
-    col3.metric(
-        "Operações Compromissadas",
-        f"R$ {compromissadas:,.0f}"
-    )
+    col1.metric("Títulos Públicos", f"R$ {publico:,.0f}")
+    col2.metric("Títulos Privados", f"R$ {privado:,.0f}")
+    col3.metric("Operações Compromissadas", f"R$ {compromissadas:,.0f}")
 
     st.markdown("---")
 
-    st.metric(
-        "Total TVM (contas analíticas)",
-        f"R$ {total_tvm:,.0f}"
-    )
+    st.metric("Total TVM (contas analíticas)", f"R$ {total_tvm:,.0f}")
 
     # ==============================
-    # TABELA DETALHADA
+    # DETALHAMENTO PARA AUDITORIA
     # ==============================
 
     st.subheader("Detalhamento Analítico Classificado")
 
     st.dataframe(
         df_tvm[
-            ["Conta_limpa", "Descricao", "Categoria", "Valor Saldo"]
+            ["Conta_limpa", "Descrição da Conta", "Categoria", "Valor Saldo"]
         ].sort_values("Valor Saldo", ascending=False)
     )
