@@ -118,19 +118,15 @@ if uploaded_file2:
     ].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO PRECISA (SEM OUTROS)
+    # CLASSIFICAÇÃO
     # =====================================================
 
     def classificar(descricao):
 
-        if any(p in descricao for p in [
-            "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
-        ]):
+        if any(p in descricao for p in ["FUTURO", "OPÇÃO", "SWAP", "DERIVAT"]):
             return "Derivativos"
 
-        if any(p in descricao for p in [
-            "TESOURO", "LFT", "LTN", "NTN"
-        ]):
+        if any(p in descricao for p in ["TESOURO", "LFT", "LTN", "NTN"]):
             return "Títulos Públicos"
 
         if any(p in descricao for p in [
@@ -143,7 +139,6 @@ if uploaded_file2:
         return None
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
-
     df_tvm = df_tvm[df_tvm["Categoria"].notna()]
 
     consolidado = (
@@ -158,7 +153,7 @@ if uploaded_file2:
     ) * 100
 
     # =====================================================
-    # RESUMO
+    # RESUMO EXECUTIVO COM ABERTURA
     # =====================================================
 
     st.subheader("Resumo Executivo")
@@ -166,10 +161,36 @@ if uploaded_file2:
     cols = st.columns(len(consolidado))
 
     for i in range(len(consolidado)):
-        cols[i].metric(
-            consolidado.iloc[i]["Categoria"],
-            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
-        )
+
+        categoria = consolidado.iloc[i]["Categoria"]
+        valor_categoria = consolidado.iloc[i]["Valor Saldo"]
+
+        with cols[i]:
+            st.metric(
+                categoria,
+                formatar_moeda(valor_categoria)
+            )
+
+            # 🔎 ABERTURA DO TOTAL
+            with st.expander("Ver composição"):
+
+                df_categoria = df_tvm[df_tvm["Categoria"] == categoria].copy()
+
+                soma_check = df_categoria["Valor Saldo"].sum()
+
+                st.write("Soma das contas:", formatar_moeda(soma_check))
+
+                df_exibicao = df_categoria.sort_values(
+                    "Valor Saldo",
+                    ascending=False
+                ).copy()
+
+                df_exibicao["Valor Saldo"] = df_exibicao["Valor Saldo"].apply(formatar_moeda)
+
+                st.dataframe(
+                    df_exibicao[["Conta", "Descrição da Conta", "Valor Saldo"]],
+                    use_container_width=True
+                )
 
     st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
 
@@ -209,6 +230,7 @@ if uploaded_file2:
 
     st.subheader("Contas Consideradas na Análise")
 
-    df_tvm["Valor Saldo"] = df_tvm["Valor Saldo"].apply(formatar_moeda)
+    df_exibicao_final = df_tvm.copy()
+    df_exibicao_final["Valor Saldo"] = df_exibicao_final["Valor Saldo"].apply(formatar_moeda)
 
-    st.dataframe(df_tvm, use_container_width=True)
+    st.dataframe(df_exibicao_final, use_container_width=True)
