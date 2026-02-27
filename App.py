@@ -126,31 +126,64 @@ if uploaded_file2:
     # CLASSIFICAÇÃO ECONÔMICA
     def classificar(descricao):
 
-        if "COMPROMISS" in descricao:
-            return "Operações Compromissadas"
+    descricao = descricao.upper()
 
-        if any(p in descricao for p in [
-            "TESOURO",
-            "LETRAS DO TESOURO",
-            "NOTAS DO TESOURO",
-            "LETRAS FINANCEIRAS DO TESOURO",
-            "TÍTULOS PÚBLICOS"
-        ]):
-            return "Títulos Públicos"
+    # 1. OPERAÇÕES COMPROMISSADAS
+    if "COMPROMISS" in descricao:
+        return "Operações Compromissadas"
 
-        if any(p in descricao for p in [
-            "DEBÊNTURES", "DEBENTURES",
-            "LETRAS FINANCEIRAS",
-            "CDB", "CERTIFICADOS",
-            "CRI", "CRA",
-            "COTAS", "FUNDO",
-            "AÇÕES", "BDR",
-            "RENDA VARIAVEL",
-            "EXTERIOR"
-        ]):
-            return "Títulos Privados"
+    # 2. TÍTULOS PÚBLICOS
+    if any(p in descricao for p in [
+        "TESOURO",
+        "LETRAS DO TESOURO",
+        "NOTAS DO TESOURO",
+        "LETRAS FINANCEIRAS DO TESOURO",
+        "TÍTULOS PÚBLICOS"
+    ]):
+        return "Títulos Públicos"
 
-        return "Outros"
+    # 3. TÍTULOS PRIVADOS
+    if any(p in descricao for p in [
+        "DEBÊNTURES", "DEBENTURES",
+        "LETRAS FINANCEIRAS",
+        "CDB", "CERTIFICADOS",
+        "CRI", "CRA",
+        "COTAS", "FUNDO",
+        "AÇÕES", "BDR",
+        "RENDA VARIAVEL",
+        "EXTERIOR"
+    ]):
+        return "Títulos Privados"
+
+    # 4. CAIXA / DISPONIBILIDADES
+    if any(p in descricao for p in [
+        "CAIXA",
+        "DISPONIBIL",
+        "BANCOS",
+        "CONTA CORRENTE"
+    ]):
+        return "Caixa e Disponibilidades"
+
+    # 5. DERIVATIVOS
+    if any(p in descricao for p in [
+        "FUTURO",
+        "OPÇÃO",
+        "SWAP",
+        "TERMO",
+        "DERIVAT"
+    ]):
+        return "Derivativos"
+
+    # 6. PROVISÕES / OBRIGAÇÕES
+    if any(p in descricao for p in [
+        "PROVIS",
+        "OBRIGA",
+        "TAXA",
+        "DESPESA"
+    ]):
+        return "Provisões e Obrigações"
+
+    return "Outros"
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
