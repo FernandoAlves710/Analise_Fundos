@@ -68,10 +68,12 @@ if uploaded_file1:
     st.divider()
 
 # ==============================
-# PARTE 2 - BALANCETE (ESTRUTURA COMPLETA COSIF)
+# PARTE 2 – BALANCETE (VERSÃO INSTITUCIONAL)
 # ==============================
 
-st.header("📘 Parte 2 – Estruturação Completa do Balancete")
+import numpy as np
+
+st.header("Parte 2 - Análise Estrutural do Balancete (COSIF)")
 
 uploaded_file2 = st.file_uploader(
     "Envie a planilha de Balancete (.xlsx):",
@@ -80,16 +82,17 @@ uploaded_file2 = st.file_uploader(
 )
 
 if uploaded_file2:
+
     df2 = pd.read_excel(uploaded_file2)
     df2.columns = df2.columns.str.strip()
 
+    # ==============================
+    # LIMPEZA
+    # ==============================
+
     df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
+
     df2["Conta"] = df2["Conta"].astype(str)
-
-    # =========================================
-    # 1️⃣ Limpeza COSIF
-    # =========================================
-
     df2["Conta_limpa"] = (
         df2["Conta"]
         .str.replace(".", "", regex=False)
@@ -97,92 +100,127 @@ if uploaded_file2:
         .str.strip()
     )
 
-    # =========================================
-    # 2️⃣ Identificação Hierárquica Completa
-    # =========================================
+    df2["Descricao"] = df2["Descricao"].astype(str).str.upper()
 
-    todas_contas = df2["Conta_limpa"].tolist()
+    # ==============================
+    # FILTRAR SOMENTE ATIVO
+    # ==============================
 
-    def identificar_tipo_conta(codigo):
-        for outra in todas_contas:
-            if outra != codigo and outra.startswith(codigo):
-                return "Sintética"
-        return "Analítica"
+    df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
-    df2["Tipo_Conta"] = df2["Conta_limpa"].apply(identificar_tipo_conta)
+    # ==============================
+    # IDENTIFICAR CONTAS ANALÍTICAS
+    # ==============================
 
-    # =========================================
-    # 3️⃣ Trabalhar apenas com contas analíticas
-    # =========================================
+    contas = df_ativo["Conta_limpa"].tolist()
+    contas_set = set(contas)
 
-    df_analitico = df2[df2["Tipo_Conta"] == "Analítica"].copy()
+    def eh_conta_analitica(conta):
+        for outra in contas_set:
+            if outra != conta and outra.startswith(conta):
+                return False
+        return True
 
-    # =========================================
-    # 4️⃣ Separar Ativo e Passivo
-    # =========================================
+    df_ativo["Conta_Analitica"] = df_ativo["Conta_limpa"].apply(eh_conta_analitica)
 
-    df_analitico["Grupo"] = df_analitico["Conta_limpa"].str[0]
+    df_analitico = df_ativo[df_ativo["Conta_Analitica"] == True].copy()
 
-    ativo = df_analitico[df_analitico["Grupo"] == "1"].copy()
-    passivo = df_analitico[df_analitico["Grupo"] == "2"].copy()
+    # ==============================
+    # FILTRAR APENAS TVM (13)
+    # ==============================
 
-    # =========================================
-    # 5️⃣ Dentro do Ativo, identificar TVM
-    # =========================================
+    df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
 
-    ativo["Subgrupo"] = ativo["Conta_limpa"].str[:2]
+    # ==============================
+    # CLASSIFICAÇÃO ECONÔMICA
+    # ==============================
 
-    tvm = ativo[ativo["Subgrupo"] == "13"].copy()
+    def classificar(descricao):
 
-    # =========================================
-    # 6️⃣ Classificação Inteligente
-    # =========================================
+        if any(p in descricao for p in ["COMPROMISSADA", "REPO"]):
+            return "Compromissadas"
 
-    def classificar_tvm(row):
-        conta = row["Conta_limpa"]
-        desc = row["Descrição da Conta"].upper()
+        if any(p in descricao for p in [
+            "TESOURO", "LTN", "LFT", "NTN", "TITULO PUBLICO"
+        ]):
+            return "Titulos Publicos"
 
-        if "COMPROMISSAD" in desc:
-            return "Operações Compromissadas"
+        if any(p in descricao for p in [
+            "CDB", "DEBENTURE", "CRI", "CRA",
+            "LETRA FINANCEIRA", "NOTA COMERCIAL",
+            "FIDC", "DPGE"
+        ]):
+            return "Titulos Privados"
 
-        if conta.startswith("131"):
-            return "Títulos Públicos"
+        return "Outros"
 
-        if conta.startswith("132"):
-            return "Títulos Privados"
+    df_tvm["Categoria"] = df_tvm["Descricao"].apply(classificar)
 
-        return "Outros TVM"
+    # ==============================
+    # CONSOLIDAÇÃO
+    # ==============================
 
-    tvm["Categoria"] = tvm.apply(classificar_tvm, axis=1)
-
-    resumo = (
-        tvm
-        .groupby("Categoria")["Valor Saldo"]
+    consolidado = (
+        df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
         .reset_index()
     )
 
-    # =========================================
-    # 7️⃣ Cards Executivos
-    # =========================================
+    total_tvm = df_tvm["Valor Saldo"].sum()
 
-    valor_publicos = resumo.loc[resumo["Categoria"]=="Títulos Públicos","Valor Saldo"].sum()
-    valor_privados = resumo.loc[resumo["Categoria"]=="Títulos Privados","Valor Saldo"].sum()
-    valor_comp = resumo.loc[resumo["Categoria"]=="Operações Compromissadas","Valor Saldo"].sum()
+    publico = consolidado.loc[
+        consolidado["Categoria"] == "Titulos Publicos",
+        "Valor Saldo"
+    ].sum()
+
+    privado = consolidado.loc[
+        consolidado["Categoria"] == "Titulos Privados",
+        "Valor Saldo"
+    ].sum()
+
+    compromissadas = consolidado.loc[
+        consolidado["Categoria"] == "Compromissadas",
+        "Valor Saldo"
+    ].sum()
+
+    # ==============================
+    # DASHBOARD EXECUTIVO
+    # ==============================
+
+    st.subheader("Resumo Executivo – TVM")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Títulos Públicos", f"R$ {valor_publicos:,.0f}".replace(",", "."))
-    col2.metric("Títulos Privados", f"R$ {valor_privados:,.0f}".replace(",", "."))
-    col3.metric("Operações Compromissadas", f"R$ {valor_comp:,.0f}".replace(",", "."))
 
-    st.divider()
+    col1.metric(
+        "Títulos Públicos",
+        f"R$ {publico:,.0f}"
+    )
 
-    # =========================================
-    # 8️⃣ Mostrar Estrutura Completa (para auditoria)
-    # =========================================
+    col2.metric(
+        "Títulos Privados",
+        f"R$ {privado:,.0f}"
+    )
 
-    st.subheader("📋 Estrutura Analítica Completa (Ativo)")
+    col3.metric(
+        "Operações Compromissadas",
+        f"R$ {compromissadas:,.0f}"
+    )
+
+    st.markdown("---")
+
+    st.metric(
+        "Total TVM (contas analíticas)",
+        f"R$ {total_tvm:,.0f}"
+    )
+
+    # ==============================
+    # TABELA DETALHADA
+    # ==============================
+
+    st.subheader("Detalhamento Analítico Classificado")
+
     st.dataframe(
-        ativo[["Conta","Descrição da Conta","Valor Saldo","Tipo_Conta"]],
-        use_container_width=True
+        df_tvm[
+            ["Conta_limpa", "Descricao", "Categoria", "Valor Saldo"]
+        ].sort_values("Valor Saldo", ascending=False)
     )
