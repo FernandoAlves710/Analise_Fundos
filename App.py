@@ -81,7 +81,7 @@ if uploaded_file1:
 
 
 # =========================================================
-# PARTE 2 – BALANCETE
+# PARTE 2 – BALANCETE (VERSÃO ESTRUTURAL CORRIGIDA)
 # =========================================================
 
 st.header("2. Estrutura da Carteira – Balancete (COSIF)")
@@ -109,16 +109,17 @@ if uploaded_file2:
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
     # =====================================================
-    # TOTAL OFICIAL TVM (CONTA SINTÉTICA 13 MAIS CURTA)
+    # IDENTIFICA CONTA TOTAL OFICIAL (13 MAIS CURTA)
     # =====================================================
 
-    df_tvm_sintetico = df2[df2["Conta_limpa"].str.startswith("13")].copy()
+    df_13 = df2[df2["Conta_limpa"].str.startswith("13")].copy()
 
-    df_tvm_sintetico["tamanho"] = df_tvm_sintetico["Conta_limpa"].str.len()
+    df_13["tamanho"] = df_13["Conta_limpa"].str.len()
 
-    conta_total_tvm = df_tvm_sintetico.sort_values("tamanho").iloc[0]
+    conta_total = df_13.sort_values("tamanho").iloc[0]
 
-    total_tvm_oficial = conta_total_tvm["Valor Saldo"]
+    codigo_base = conta_total["Conta_limpa"]
+    total_tvm_oficial = conta_total["Valor Saldo"]
 
     # =====================================================
     # FILTRA APENAS ATIVO
@@ -126,7 +127,7 @@ if uploaded_file2:
 
     df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
-    # IDENTIFICA CONTAS ANALÍTICAS
+    # IDENTIFICA CONTAS ANALÍTICAS (folhas)
     contas = df_ativo["Conta_limpa"].tolist()
     contas_set = set(contas)
 
@@ -139,11 +140,16 @@ if uploaded_file2:
     df_ativo["Conta_Analitica"] = df_ativo["Conta_limpa"].apply(eh_conta_analitica)
     df_analitico = df_ativo[df_ativo["Conta_Analitica"]].copy()
 
-    # FILTRA TVM ANALÍTICO
-    df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
+    # =====================================================
+    # FILTRA SOMENTE CONTAS FILHAS DO TOTAL OFICIAL
+    # =====================================================
+
+    df_tvm = df_analitico[
+        df_analitico["Conta_limpa"].str.startswith(codigo_base)
+    ].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO
+    # CLASSIFICAÇÃO ECONÔMICA
     # =====================================================
 
     def classificar(descricao):
@@ -173,26 +179,16 @@ if uploaded_file2:
             return "Títulos Privados"
 
         if any(p in descricao for p in [
-            "CAIXA", "DISPONIBIL", "BANCOS"
-        ]):
-            return "Caixa e Disponibilidades"
-
-        if any(p in descricao for p in [
             "FUTURO", "OPÇÃO", "SWAP", "TERMO", "DERIVAT"
         ]):
             return "Derivativos"
-
-        if any(p in descricao for p in [
-            "PROVIS", "OBRIGA", "TAXA", "DESPESA"
-        ]):
-            return "Provisões e Obrigações"
 
         return "Outros"
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
     # =====================================================
-    # CONSOLIDAÇÃO (PARA DISTRIBUIÇÃO)
+    # CONSOLIDAÇÃO
     # =====================================================
 
     consolidado = (
@@ -232,7 +228,7 @@ if uploaded_file2:
 
     col_graf1, col_graf2 = st.columns([1, 1.2])
 
-    # Pizza menor
+    # Pizza compacta
     with col_graf1:
         fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
         ax1.pie(
