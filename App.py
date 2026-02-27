@@ -68,10 +68,8 @@ if uploaded_file1:
     st.divider()
 
 # ==============================
-# PARTE 2 – BALANCETE (VERSÃO FINAL AJUSTADA)
+# PARTE 2 – BALANCETE (VERSÃO FINAL DEFINITIVA)
 # ==============================
-
-import numpy as np
 
 st.header("Parte 2 - Análise Estrutural do Balancete (COSIF)")
 
@@ -86,7 +84,7 @@ if uploaded_file2:
     df2 = pd.read_excel(uploaded_file2)
 
     # ==============================
-    # LIMPEZA
+    # LIMPEZA BÁSICA
     # ==============================
 
     df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
@@ -102,14 +100,14 @@ if uploaded_file2:
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
     # ==============================
-    # FILTRAR APENAS ATIVO
+    # FILTRAR APENAS ATIVO (grupo 1)
     # ==============================
 
     df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
     # ==============================
     # IDENTIFICAR CONTAS ANALÍTICAS
-    # (não possuem subcontas abaixo delas)
+    # (não possuem subcontas abaixo)
     # ==============================
 
     contas = df_ativo["Conta_limpa"].tolist()
@@ -126,7 +124,7 @@ if uploaded_file2:
     df_analitico = df_ativo[df_ativo["Conta_Analitica"] == True].copy()
 
     # ==============================
-    # FILTRAR TVM (contas iniciadas em 13)
+    # FILTRAR TVM (grupo 13)
     # ==============================
 
     df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
@@ -137,18 +135,39 @@ if uploaded_file2:
 
     def classificar(descricao):
 
-        if any(p in descricao for p in ["COMPROMISSADA", "REPO"]):
+        descricao = descricao.upper()
+
+        # 1️⃣ OPERAÇÕES COMPROMISSADAS
+        if "COMPROMISS" in descricao:
             return "Operações Compromissadas"
 
+        # 2️⃣ TÍTULOS PÚBLICOS
         if any(p in descricao for p in [
-            "TESOURO", "LTN", "LFT", "NTN", "TÍTULO PÚBLICO"
+            "TESOURO",
+            "LETRAS DO TESOURO",
+            "NOTAS DO TESOURO",
+            "LETRAS FINANCEIRAS DO TESOURO",
+            "TÍTULOS PÚBLICOS FEDERAIS"
         ]):
             return "Títulos Públicos"
 
+        # 3️⃣ TÍTULOS PRIVADOS
         if any(p in descricao for p in [
-            "CDB", "DEBENTURE", "CRI", "CRA",
-            "LETRA FINANCEIRA", "NOTA COMERCIAL",
-            "FIDC", "DPGE"
+            "LETRAS FINANCEIRAS",
+            "DEBÊNTURES",
+            "DEBENTURES",
+            "CERTIFICADOS DE DEPOSITO BANCARIO",
+            "CERTIFICADOS DE RECEBÍVEIS",
+            "COTAS DE FUNDO",
+            "FUNDO",
+            "FIDC",
+            "CRI",
+            "CRA",
+            "AÇÕES",
+            "BDR",
+            "RENDA VARIAVEL",
+            "EXTERIOR",
+            "TÍTULOS PRIVADOS"
         ]):
             return "Títulos Privados"
 
@@ -196,11 +215,10 @@ if uploaded_file2:
     col3.metric("Operações Compromissadas", f"R$ {compromissadas:,.0f}")
 
     st.markdown("---")
-
     st.metric("Total TVM (contas analíticas)", f"R$ {total_tvm:,.0f}")
 
     # ==============================
-    # DETALHAMENTO PARA AUDITORIA
+    # TABELA DETALHADA (AUDITORIA)
     # ==============================
 
     st.subheader("Detalhamento Analítico Classificado")
