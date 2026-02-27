@@ -178,43 +178,47 @@ if uploaded_file2:
 
     st.divider()
 
-    # =====================================================
-    # GRÁFICO DE PIZZA
-    # =====================================================
+# =====================================================
+# GRÁFICOS – TAMANHO AJUSTADO
+# =====================================================
 
-    st.subheader("Distribuição da Carteira (%)")
+st.subheader("Distribuição da Carteira")
 
-    fig1, ax1 = plt.subplots()
+col_graf1, col_graf2 = st.columns(2)
+
+# -----------------------------
+# GRÁFICO DE PIZZA (menor)
+# -----------------------------
+with col_graf1:
+    fig1, ax1 = plt.subplots(figsize=(4, 4))  # tamanho reduzido
 
     ax1.pie(
         consolidado["Valor Saldo"],
         labels=consolidado["Categoria"],
-        autopct='%1.1f%%'
+        autopct='%1.1f%%',
+        textprops={'fontsize': 9}
     )
 
-    ax1.set_title("Alocação por Categoria")
-
+    ax1.set_title("Alocação Percentual", fontsize=11)
     st.pyplot(fig1)
 
-    # =====================================================
-    # GRÁFICO DE BARRAS HORIZONTAL
-    # =====================================================
 
-    st.subheader("Distribuição por Valor Absoluto")
-
-    fig2, ax2 = plt.subplots()
+# -----------------------------
+# GRÁFICO DE BARRAS (menor)
+# -----------------------------
+with col_graf2:
+    fig2, ax2 = plt.subplots(figsize=(6, 3))  # tamanho reduzido
 
     ax2.barh(
         consolidado["Categoria"],
         consolidado["Valor Saldo"]
     )
 
-    ax2.set_xlabel("Valor (R$)")
-    ax2.set_title("Exposição Financeira por Categoria")
+    ax2.set_title("Exposição por Categoria", fontsize=11)
+    ax2.tick_params(axis='y', labelsize=9)
+    ax2.tick_params(axis='x', labelsize=8)
 
     st.pyplot(fig2)
-
-    st.divider()
 
     # =====================================================
     # TABELA ANALÍTICA ENXUTA
