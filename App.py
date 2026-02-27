@@ -2,47 +2,53 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Análise de Fundos", layout="wide")
+st.set_page_config(
+    page_title="Análise de Fundos",
+    layout="wide"
+)
 
-st.title("Ferramenta de Análise de Fundos")
+st.title("Análise Profissional de Fundos de Investimento")
 st.markdown("---")
 
-# ==============================
-# Funções auxiliares
-# ==============================
+
+# =========================================================
+# FUNÇÕES AUXILIARES
+# =========================================================
 
 def converter_valor_brasileiro(valor):
     if pd.isna(valor):
         return 0
     if isinstance(valor, (int, float)):
-        return int(valor)
-    valor = str(valor).strip().replace(".", "").split(",")[0]
+        return float(valor)
+    valor = str(valor).replace(".", "").replace(",", ".")
     try:
-        return int(valor)
+        return float(valor)
     except:
         return 0
 
 
-# ==============================
-# PARTE 1 - ORIGINAL (NÃO ALTERADA)
-# ==============================
+def formatar_moeda(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-st.header("📈 Parte 1 – Cotistas e Patrimônio Líquido")
+
+# =========================================================
+# PARTE 1 – COTISTAS & PATRIMÔNIO
+# =========================================================
+
+st.header("1. Cotistas e Patrimônio Líquido")
 
 uploaded_file1 = st.file_uploader(
-    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx):",
+    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx)",
     type=["xlsx"],
     key="planilha1"
 )
 
 if uploaded_file1:
+
     df1 = pd.read_excel(uploaded_file1)
     df1.columns = df1.columns.str.strip().str.lower()
 
     df1.rename(columns={
-        "data": "data",
-        "cota": "cota",
-        "variação da cota diária": "variacao_cota",
         "patrimônio": "patrimonio",
         "captação": "captacao",
         "resgate": "resgate",
@@ -50,31 +56,34 @@ if uploaded_file1:
     }, inplace=True)
 
     for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
-        df1[col] = df1[col].apply(converter_valor_brasileiro)
+        if col in df1.columns:
+            df1[col] = df1[col].apply(converter_valor_brasileiro)
 
     patrimonio_final = df1["patrimonio"].iloc[0]
     patrimonio_inicial = df1["patrimonio"].iloc[-1]
     variacao_patrimonio = patrimonio_final - patrimonio_inicial
 
-    cotistas_finais = df1["cotistas"].iloc[0]
+    cotistas_finais = int(df1["cotistas"].iloc[0])
     captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
-    st.subheader("📊 Resultados — Cotistas & Patrimônio")
-    st.metric("Cotistas (data final)", f"{cotistas_finais:,}".replace(",", "."))
-    st.metric("Patrimônio (final)", f"R$ {patrimonio_final:,}".replace(",", "."))
-    st.metric("Captação líquida (período)", f"R$ {captacoes_liquidas:,}".replace(",", "."))
-    st.metric("Variação do PL (final - inicial)", f"R$ {variacao_patrimonio:,}".replace(",", "."))
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
+    col2.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
+    col3.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
+    col4.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
 
     st.divider()
 
-# ==============================
-# PARTE 2 – BALANCETE (VERSÃO FINAL DEFINITIVA)
-# ==============================
 
-st.header("Parte 2 - Análise Estrutural do Balancete (COSIF)")
+# =========================================================
+# PARTE 2 – ANÁLISE ESTRUTURAL DO BALANCETE
+# =========================================================
+
+st.header("2. Estrutura da Carteira – Balancete (COSIF)")
 
 uploaded_file2 = st.file_uploader(
-    "Envie a planilha de Balancete (.xlsx):",
+    "Envie a planilha de Balancete (.xlsx)",
     type=["xlsx"],
     key="planilha2"
 )
@@ -83,13 +92,9 @@ if uploaded_file2:
 
     df2 = pd.read_excel(uploaded_file2)
 
-    # ==============================
-    # LIMPEZA BÁSICA
-    # ==============================
-
     df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
-
     df2["Conta"] = df2["Conta"].astype(str)
+
     df2["Conta_limpa"] = (
         df2["Conta"]
         .str.replace(".", "", regex=False)
@@ -99,17 +104,10 @@ if uploaded_file2:
 
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
-    # ==============================
-    # FILTRAR APENAS ATIVO (grupo 1)
-    # ==============================
-
+    # FILTRA ATIVO
     df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
-    # ==============================
-    # IDENTIFICAR CONTAS ANALÍTICAS
-    # (não possuem subcontas abaixo)
-    # ==============================
-
+    # IDENTIFICA CONTAS ANALÍTICAS
     contas = df_ativo["Conta_limpa"].tolist()
     contas_set = set(contas)
 
@@ -120,54 +118,35 @@ if uploaded_file2:
         return True
 
     df_ativo["Conta_Analitica"] = df_ativo["Conta_limpa"].apply(eh_conta_analitica)
-
     df_analitico = df_ativo[df_ativo["Conta_Analitica"] == True].copy()
 
-    # ==============================
-    # FILTRAR TVM (grupo 13)
-    # ==============================
-
+    # FILTRA TVM (13)
     df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
 
-    # ==============================
     # CLASSIFICAÇÃO ECONÔMICA
-    # ==============================
-
     def classificar(descricao):
 
-        descricao = descricao.upper()
-
-        # 1️⃣ OPERAÇÕES COMPROMISSADAS
         if "COMPROMISS" in descricao:
             return "Operações Compromissadas"
 
-        # 2️⃣ TÍTULOS PÚBLICOS
         if any(p in descricao for p in [
             "TESOURO",
             "LETRAS DO TESOURO",
             "NOTAS DO TESOURO",
             "LETRAS FINANCEIRAS DO TESOURO",
-            "TÍTULOS PÚBLICOS FEDERAIS"
+            "TÍTULOS PÚBLICOS"
         ]):
             return "Títulos Públicos"
 
-        # 3️⃣ TÍTULOS PRIVADOS
         if any(p in descricao for p in [
+            "DEBÊNTURES", "DEBENTURES",
             "LETRAS FINANCEIRAS",
-            "DEBÊNTURES",
-            "DEBENTURES",
-            "CERTIFICADOS DE DEPOSITO BANCARIO",
-            "CERTIFICADOS DE RECEBÍVEIS",
-            "COTAS DE FUNDO",
-            "FUNDO",
-            "FIDC",
-            "CRI",
-            "CRA",
-            "AÇÕES",
-            "BDR",
+            "CDB", "CERTIFICADOS",
+            "CRI", "CRA",
+            "COTAS", "FUNDO",
+            "AÇÕES", "BDR",
             "RENDA VARIAVEL",
-            "EXTERIOR",
-            "TÍTULOS PRIVADOS"
+            "EXTERIOR"
         ]):
             return "Títulos Privados"
 
@@ -175,56 +154,81 @@ if uploaded_file2:
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
-    # ==============================
     # CONSOLIDAÇÃO
-    # ==============================
-
     consolidado = (
         df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
         .reset_index()
+        .sort_values("Valor Saldo", ascending=False)
     )
 
-    total_tvm = df_tvm["Valor Saldo"].sum()
+    total_tvm = consolidado["Valor Saldo"].sum()
 
-    publico = consolidado.loc[
-        consolidado["Categoria"] == "Títulos Públicos",
-        "Valor Saldo"
-    ].sum()
+    st.subheader("Resumo Executivo")
 
-    privado = consolidado.loc[
-        consolidado["Categoria"] == "Títulos Privados",
-        "Valor Saldo"
-    ].sum()
+    cols = st.columns(len(consolidado))
 
-    compromissadas = consolidado.loc[
-        consolidado["Categoria"] == "Operações Compromissadas",
-        "Valor Saldo"
-    ].sum()
+    for i, row in consolidado.iterrows():
+        cols[i].metric(
+            row["Categoria"],
+            formatar_moeda(row["Valor Saldo"])
+        )
 
-    # ==============================
-    # DASHBOARD EXECUTIVO
-    # ==============================
+    st.metric("Total TVM", formatar_moeda(total_tvm))
 
-    st.subheader("Resumo Executivo – TVM")
+    st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    # =====================================================
+    # GRÁFICO DE PIZZA
+    # =====================================================
 
-    col1.metric("Títulos Públicos", f"R$ {publico:,.0f}")
-    col2.metric("Títulos Privados", f"R$ {privado:,.0f}")
-    col3.metric("Operações Compromissadas", f"R$ {compromissadas:,.0f}")
+    st.subheader("Distribuição da Carteira (%)")
 
-    st.markdown("---")
-    st.metric("Total TVM (contas analíticas)", f"R$ {total_tvm:,.0f}")
+    fig1, ax1 = plt.subplots()
 
-    # ==============================
-    # TABELA DETALHADA (AUDITORIA)
-    # ==============================
+    ax1.pie(
+        consolidado["Valor Saldo"],
+        labels=consolidado["Categoria"],
+        autopct='%1.1f%%'
+    )
 
-    st.subheader("Detalhamento Analítico Classificado")
+    ax1.set_title("Alocação por Categoria")
+
+    st.pyplot(fig1)
+
+    # =====================================================
+    # GRÁFICO DE BARRAS HORIZONTAL
+    # =====================================================
+
+    st.subheader("Distribuição por Valor Absoluto")
+
+    fig2, ax2 = plt.subplots()
+
+    ax2.barh(
+        consolidado["Categoria"],
+        consolidado["Valor Saldo"]
+    )
+
+    ax2.set_xlabel("Valor (R$)")
+    ax2.set_title("Exposição Financeira por Categoria")
+
+    st.pyplot(fig2)
+
+    st.divider()
+
+    # =====================================================
+    # TABELA ANALÍTICA ENXUTA
+    # =====================================================
+
+    st.subheader("Detalhamento Analítico")
+
+    tabela_final = df_tvm[
+        ["Descrição da Conta", "Categoria", "Valor Saldo"]
+    ].sort_values("Valor Saldo", ascending=False)
+
+    tabela_final["Valor Saldo"] = tabela_final["Valor Saldo"].apply(formatar_moeda)
 
     st.dataframe(
-        df_tvm[
-            ["Conta_limpa", "Descrição da Conta", "Categoria", "Valor Saldo"]
-        ].sort_values("Valor Saldo", ascending=False)
+        tabela_final,
+        use_container_width=True
     )
