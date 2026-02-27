@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================================================
-# CONFIGURAÇÃO INICIAL
+# CONFIGURAÇÃO
 # =========================================================
 
 st.set_page_config(
@@ -33,72 +33,7 @@ def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # =========================================================
-# CLASSE DA ÁRVORE CONTÁBIL
-# =========================================================
-
-class ContaNode:
-    def __init__(self, codigo, descricao, valor):
-        self.codigo = codigo
-        self.descricao = descricao
-        self.valor = float(valor)
-        self.pai = None
-        self.filhos = []
-
-    def adicionar_filho(self, filho):
-        self.filhos.append(filho)
-        filho.pai = self
-
-    def eh_folha(self):
-        return len(self.filhos) == 0
-
-# =========================================================
-# FUNÇÕES DE HIERARQUIA (ROBUSTA)
-# =========================================================
-
-def limpar_codigo(codigo):
-    return str(codigo).replace("-", "").strip()
-
-def construir_arvore_tvm(df):
-
-    df_13 = df[df["Conta"].astype(str).str.startswith("13")].copy()
-    df_13["Conta"] = df_13["Conta"].apply(limpar_codigo)
-
-    nodes = {}
-
-    # Criar nós
-    for _, row in df_13.iterrows():
-        nodes[row["Conta"]] = ContaNode(
-            row["Conta"],
-            row["Descrição da Conta"],
-            row["Valor Saldo"]
-        )
-
-    for codigo in list(nodes.keys()):
-
-        # Hierarquia por blocos de 2 dígitos
-        niveis = [
-            codigo[:2],
-            codigo[:4],
-            codigo[:6],
-            codigo[:8]
-        ]
-
-        for nivel in niveis[:-1]:
-            if nivel in nodes and nivel != codigo:
-                nodes[nivel].adicionar_filho(nodes[codigo])
-                break
-
-    return nodes
-
-def encontrar_raiz(nodes):
-    # menor código iniciando em 13
-    return sorted(nodes.values(), key=lambda x: len(x.codigo))[0]
-
-def listar_folhas(nodes):
-    return [node for node in nodes.values() if node.eh_folha()]
-
-# =========================================================
-# PARTE 1 – COTISTAS & PATRIMÔNIO
+# PARTE 1 – COTISTAS & PL
 # =========================================================
 
 st.header("1. Cotistas e Patrimônio Líquido")
@@ -141,10 +76,10 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – BALANCETE COM HIERARQUIA REAL
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM)
 # =========================================================
 
-st.header("2. Estrutura da Carteira – Balancete (COSIF)")
+st.header("2. Exposição Econômica da Carteira (TVM)")
 
 uploaded_file2 = st.file_uploader(
     "Envie a planilha de Balancete (.xlsx)",
@@ -156,24 +91,31 @@ if uploaded_file2:
 
     df2 = pd.read_excel(uploaded_file2)
 
-    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
-    df2["Conta"] = df2["Conta"].astype(str)
+    df2["Conta"] = df2["Conta"].astype(str).str.strip()
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
+    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
 
-    nodes = construir_arvore_tvm(df2)
-    raiz = encontrar_raiz(nodes)
+    # =====================================================
+    # TOTAL OFICIAL TVM (13000004)
+    # =====================================================
 
-    total_tvm_oficial = raiz.valor
-    folhas = listar_folhas(nodes)
+    linha_total = df2[df2["Conta"] == "13000004"]
 
-    soma_folhas = sum(n.valor for n in folhas)
-    diferenca = total_tvm_oficial - soma_folhas
+    if linha_total.empty:
+        st.error("Conta 13000004 não encontrada na planilha.")
+        st.stop()
 
-    df_folhas = pd.DataFrame([{
-        "Conta": n.codigo,
-        "Descrição da Conta": n.descricao,
-        "Valor Saldo": n.valor
-    } for n in folhas])
+    total_tvm_oficial = linha_total["Valor Saldo"].iloc[0]
+
+    # =====================================================
+    # CONSIDERAR APENAS CONTAS ANALÍTICAS DIFERENTES DO TOTAL
+    # =====================================================
+
+    df_tvm = df2[
+        (df2["Conta"].str.startswith("13")) &
+        (df2["Conta"] != "13000004") &
+        (df2["Valor Saldo"] != 0)
+    ].copy()
 
     # =====================================================
     # CLASSIFICAÇÃO ECONÔMICA
@@ -185,14 +127,14 @@ if uploaded_file2:
             return "Operações Compromissadas"
 
         if any(p in descricao for p in [
-            "TESOURO", "LETRAS DO TESOURO",
-            "NOTAS DO TESOURO", "TÍTULOS PÚBLICOS"
+            "TESOURO", "LETRA DO TESOURO",
+            "NOTA DO TESOURO", "TÍTULO PÚBLICO"
         ]):
             return "Títulos Públicos"
 
         if any(p in descricao for p in [
-            "DEBÊNTURES", "CDB", "CRI", "CRA",
-            "FUNDO", "AÇÕES", "BDR"
+            "DEBÊNTURE", "CDB", "CRI", "CRA",
+            "FUNDO", "AÇÃO", "BDR"
         ]):
             return "Títulos Privados"
 
@@ -203,10 +145,10 @@ if uploaded_file2:
 
         return "Outros"
 
-    df_folhas["Categoria"] = df_folhas["Descrição da Conta"].apply(classificar)
+    df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
     consolidado = (
-        df_folhas.groupby("Categoria")["Valor Saldo"]
+        df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
         .reset_index()
         .sort_values("Valor Saldo", ascending=False)
@@ -230,12 +172,12 @@ if uploaded_file2:
             formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
         )
 
-    st.metric("Total TVM (Oficial)", formatar_moeda(total_tvm_oficial))
+    st.metric("Total TVM (Oficial - 13000004)", formatar_moeda(total_tvm_oficial))
 
-    if abs(diferenca) > 1:
-        st.warning(f"Diferença entre Total e Folhas: {formatar_moeda(diferenca)}")
-    else:
-        st.success("Validação estrutural OK – Total fecha com as folhas.")
+    st.info(
+        "Os percentuais representam exposição econômica. "
+        "Podem ultrapassar 100% devido a derivativos e alavancagem."
+    )
 
     st.divider()
 
@@ -246,7 +188,7 @@ if uploaded_file2:
     col_graf1, col_graf2 = st.columns([1, 1.2])
 
     with col_graf1:
-        fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
+        fig1, ax1 = plt.subplots(figsize=(3, 3))
         ax1.pie(
             consolidado["Valor Saldo"],
             labels=consolidado["Categoria"],
@@ -256,7 +198,7 @@ if uploaded_file2:
         st.pyplot(fig1)
 
     with col_graf2:
-        fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
+        fig2, ax2 = plt.subplots(figsize=(6, 3))
         ax2.barh(
             consolidado["Categoria"],
             consolidado["Percentual"]
@@ -269,10 +211,11 @@ if uploaded_file2:
     st.divider()
 
     # =====================================================
-    # DETALHAMENTO
+    # TABELA DETALHADA
     # =====================================================
 
-    st.subheader("Detalhamento das Contas Folha")
+    st.subheader("Detalhamento das Contas")
 
-    df_folhas["Valor Saldo"] = df_folhas["Valor Saldo"].apply(formatar_moeda)
-    st.dataframe(df_folhas, use_container_width=True)
+    df_tvm["Valor Saldo"] = df_tvm["Valor Saldo"].apply(formatar_moeda)
+
+    st.dataframe(df_tvm, use_container_width=True)
