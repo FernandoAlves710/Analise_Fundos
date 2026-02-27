@@ -33,115 +33,85 @@ def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # =========================================================
-# PARTE 1 – COTISTAS & PL
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA
 # =========================================================
 
-st.header("1. Cotistas e Patrimônio Líquido")
+st.header("Exposição Econômica da Carteira (TVM = 100%)")
 
-uploaded_file1 = st.file_uploader(
-    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx)",
-    type=["xlsx"],
-    key="planilha1"
-)
-
-if uploaded_file1:
-
-    df1 = pd.read_excel(uploaded_file1)
-    df1.columns = df1.columns.str.strip().str.lower()
-
-    df1.rename(columns={
-        "patrimônio": "patrimonio",
-        "captação": "captacao",
-        "resgate": "resgate",
-        "cotistas": "cotistas"
-    }, inplace=True)
-
-    for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
-        if col in df1.columns:
-            df1[col] = df1[col].apply(converter_valor_brasileiro)
-
-    patrimonio_final = df1["patrimonio"].iloc[0]
-    patrimonio_inicial = df1["patrimonio"].iloc[-1]
-    variacao_patrimonio = patrimonio_final - patrimonio_inicial
-    cotistas_finais = int(df1["cotistas"].iloc[0])
-    captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
-    col2.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
-    col3.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
-    col4.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
-
-    st.divider()
-
-# =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM = 100%)
-# =========================================================
-
-st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
-
-uploaded_file2 = st.file_uploader(
+uploaded_file = st.file_uploader(
     "Envie a planilha de Balancete (.xlsx)",
-    type=["xlsx"],
-    key="planilha2"
+    type=["xlsx"]
 )
 
-if uploaded_file2:
+if uploaded_file:
 
-    df2 = pd.read_excel(uploaded_file2)
+    df = pd.read_excel(uploaded_file)
 
-    df2["Conta"] = df2["Conta"].astype(str).str.strip()
-    df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
-    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
+    df["Conta"] = df["Conta"].astype(str).str.strip()
+    df["Descrição da Conta"] = df["Descrição da Conta"].astype(str).str.upper()
+    df["Valor Saldo"] = df["Valor Saldo"].apply(converter_valor_brasileiro)
 
     # =====================================================
-    # TOTAL OFICIAL TVM (13000004)
+    # TOTAL OFICIAL TVM
     # =====================================================
 
-    linha_total = df2[df2["Conta"] == "13000004"]
+    total_row = df[df["Conta"] == "13000004"]
 
-    if linha_total.empty:
-        st.error("Conta 13000004 não encontrada na planilha.")
+    if total_row.empty:
+        st.error("Conta 13000004 não encontrada.")
         st.stop()
 
-    total_tvm = linha_total["Valor Saldo"].iloc[0]
+    total_tvm = total_row["Valor Saldo"].iloc[0]
 
     # =====================================================
-    # CONSIDERAR APENAS CONTAS ANALÍTICAS
+    # APENAS CONTAS ANALÍTICAS
     # =====================================================
 
-    df_tvm = df2[
-        (df2["Conta"].str.startswith("13")) &
-        (df2["Conta"] != "13000004") &
-        (df2["Valor Saldo"] != 0)
+    df_tvm = df[
+        (df["Conta"].str.startswith("13")) &
+        (df["Conta"] != "13000004") &
+        (df["Valor Saldo"] != 0)
     ].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO SIMPLIFICADA (SEM OUTROS)
+    # CLASSIFICAÇÃO PRECISA
     # =====================================================
 
     def classificar(descricao):
 
+        # Derivativos
         if any(p in descricao for p in [
             "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
         ]):
             return "Derivativos"
 
+        # Títulos Públicos
         if any(p in descricao for p in [
-            "TESOURO", "LETRA DO TESOURO",
-            "NOTA DO TESOURO", "TÍTULO PÚBLICO"
+            "TESOURO", "LFT", "LTN", "NTN"
         ]):
             return "Títulos Públicos"
 
-        return "Títulos Privados"
+        # Títulos Privados reais
+        if any(p in descricao for p in [
+            "DEBÊNTURE", "CDB", "CRI", "CRA",
+            "FUNDO", "AÇÃO", "BDR",
+            "LCI", "LCA"
+        ]):
+            return "Títulos Privados"
+
+        # Ignorar o resto
+        return None
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
+
+    # Mantém apenas categorias válidas
+    df_tvm = df_tvm[df_tvm["Categoria"].notna()]
 
     consolidado = (
         df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
         .reset_index()
+        .sort_values("Valor Saldo", ascending=False)
     )
 
     consolidado["Percentual"] = (
@@ -149,41 +119,39 @@ if uploaded_file2:
     ) * 100
 
     # =====================================================
-    # RESUMO
+    # RESULTADOS
     # =====================================================
 
     st.subheader("Resumo Executivo")
 
-    col1, col2, col3 = st.columns(3)
+    cols = st.columns(len(consolidado))
 
-    for i, col in enumerate([col1, col2, col3]):
-        if i < len(consolidado):
-            col.metric(
-                consolidado.iloc[i]["Categoria"],
-                formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
-            )
+    for i in range(len(consolidado)):
+        cols[i].metric(
+            consolidado.iloc[i]["Categoria"],
+            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
+        )
 
     st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
 
     st.divider()
 
     # =====================================================
-    # GRÁFICOS (BASE = 100%)
+    # GRÁFICOS
     # =====================================================
 
-    col_graf1, col_graf2 = st.columns([1, 1.2])
+    col1, col2 = st.columns([1, 1.2])
 
-    with col_graf1:
+    with col1:
         fig1, ax1 = plt.subplots(figsize=(3, 3))
         ax1.pie(
             consolidado["Percentual"],
             labels=consolidado["Categoria"],
-            autopct='%1.1f%%',
-            textprops={'fontsize': 9}
+            autopct='%1.1f%%'
         )
         st.pyplot(fig1)
 
-    with col_graf2:
+    with col2:
         fig2, ax2 = plt.subplots(figsize=(6, 3))
         ax2.barh(
             consolidado["Categoria"],
@@ -196,12 +164,6 @@ if uploaded_file2:
 
     st.divider()
 
-    # =====================================================
-    # TABELA DETALHADA
-    # =====================================================
-
-    st.subheader("Detalhamento das Contas Consideradas")
-
+    st.subheader("Contas Consideradas na Análise")
     df_tvm["Valor Saldo"] = df_tvm["Valor Saldo"].apply(formatar_moeda)
-
     st.dataframe(df_tvm, use_container_width=True)
