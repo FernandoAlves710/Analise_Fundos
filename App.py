@@ -210,52 +210,70 @@ if uploaded_file2:
     st.divider()
 
     # =====================================================
-    # GRÁFICOS AJUSTADOS
-    # =====================================================
+# GRÁFICOS AJUSTADOS (MAIS COMPACTOS)
+# =====================================================
 
-    st.subheader("Distribuição da Carteira")
+st.subheader("Distribuição da Carteira")
 
-    col_graf1, col_graf2 = st.columns(2)
+col_graf1, col_graf2 = st.columns([1, 1.2])
 
-    # Pizza
-    with col_graf1:
-        fig1, ax1 = plt.subplots(figsize=(4, 4))
-        ax1.pie(
-            consolidado["Valor Saldo"],
-            labels=consolidado["Categoria"],
-            autopct='%1.1f%%',
-            textprops={'fontsize': 9}
-        )
-        ax1.set_title("Alocação Percentual", fontsize=11)
-        st.pyplot(fig1)
+# Pizza menor
+with col_graf1:
+    fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
 
-    # Barras
-    with col_graf2:
-        fig2, ax2 = plt.subplots(figsize=(6, 3))
-        ax2.barh(
-            consolidado["Categoria"],
-            consolidado["Valor Saldo"]
-        )
-        ax2.set_title("Exposição por Categoria", fontsize=11)
-        ax2.tick_params(axis='y', labelsize=9)
-        ax2.tick_params(axis='x', labelsize=8)
-        st.pyplot(fig2)
-
-    st.divider()
-
-    # =====================================================
-    # TABELA ANALÍTICA
-    # =====================================================
-
-    st.subheader("Detalhamento Analítico")
-
-    tabela_final = df_tvm[
-        ["Descrição da Conta", "Categoria", "Valor Saldo"]
-    ].sort_values("Valor Saldo", ascending=False)
-
-    tabela_final["Valor Saldo"] = tabela_final["Valor Saldo"].apply(formatar_moeda)
-
-    st.dataframe(
-        tabela_final,
-        use_container_width=True
+    ax1.pie(
+        consolidado["Valor Saldo"],
+        labels=consolidado["Categoria"],
+        autopct='%1.1f%%',
+        textprops={'fontsize': 8}
     )
+
+    ax1.set_title("Alocação Percentual", fontsize=10)
+    st.pyplot(fig1)
+
+
+# Barras proporcional
+with col_graf2:
+    fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
+
+    ax2.barh(
+        consolidado["Categoria"],
+        consolidado["Valor Saldo"]
+    )
+
+    ax2.set_title("Exposição por Categoria", fontsize=10)
+    ax2.tick_params(axis='y', labelsize=8)
+    ax2.tick_params(axis='x', labelsize=8)
+
+    st.pyplot(fig2)
+
+st.divider()
+
+# =====================================================
+# DETALHAMENTO ANALÍTICO HIERÁRQUICO
+# =====================================================
+
+st.subheader("Detalhamento Analítico Estruturado")
+
+for categoria in consolidado["Categoria"]:
+
+    df_categoria = df_tvm[df_tvm["Categoria"] == categoria].copy()
+
+    total_categoria = df_categoria["Valor Saldo"].sum()
+
+    with st.expander(f"{categoria} — {formatar_moeda(total_categoria)}"):
+
+        tabela_categoria = df_categoria[
+            ["Conta_limpa", "Descrição da Conta", "Valor Saldo"]
+        ].sort_values("Valor Saldo", ascending=False)
+
+        tabela_categoria["Valor Saldo"] = tabela_categoria["Valor Saldo"].apply(formatar_moeda)
+
+        st.dataframe(
+            tabela_categoria.rename(columns={
+                "Conta_limpa": "Conta",
+                "Descrição da Conta": "Descrição",
+                "Valor Saldo": "Valor Saldo"
+            }),
+            use_container_width=True
+        )
