@@ -63,12 +63,10 @@ def construir_arvore_tvm(df):
     df_13 = df[df["Conta"].astype(str).str.startswith("13")].copy()
     df_13["Conta"] = df_13["Conta"].apply(limpar_codigo)
 
-    # Ordena por tamanho do código
     df_13 = df_13.sort_values("Conta", key=lambda x: x.str.len())
 
     nodes = {}
 
-    # Criar nós
     for _, row in df_13.iterrows():
         nodes[row["Conta"]] = ContaNode(
             row["Conta"],
@@ -76,17 +74,18 @@ def construir_arvore_tvm(df):
             row["Valor Saldo"]
         )
 
-    codigos = list(nodes.keys())
+    codigos_ordenados = sorted(nodes.keys(), key=len)
 
-    # Conectar por prefixo
-    for codigo in codigos:
-        for outro_codigo in codigos:
-            if (
-                codigo != outro_codigo
-                and outro_codigo.startswith(codigo)
-                and len(outro_codigo) > len(codigo)
-            ):
-                nodes[codigo].adicionar_filho(nodes[outro_codigo])
+    for codigo in codigos_ordenados:
+
+        possiveis_pais = [
+            c for c in codigos_ordenados
+            if len(c) < len(codigo) and codigo.startswith(c)
+        ]
+
+        if possiveis_pais:
+            pai_correto = max(possiveis_pais, key=len)
+            nodes[pai_correto].adicionar_filho(nodes[codigo])
 
     return nodes
 
