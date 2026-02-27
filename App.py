@@ -189,7 +189,16 @@ if uploaded_file2:
         .sort_values("Valor Saldo", ascending=False)
     )
 
-    total_tvm = consolidado["Valor Saldo"].sum()
+    df_tvm_sintetico = df2[
+    df2["Conta_limpa"].str.startswith("13")
+].copy()
+
+# pega a conta 13 mais curta (nível superior)
+df_tvm_sintetico["tamanho"] = df_tvm_sintetico["Conta_limpa"].str.len()
+
+conta_total_tvm = df_tvm_sintetico.sort_values("tamanho").iloc[0]
+
+total_tvm = conta_total_tvm["Valor Saldo"]
 
     # =====================================================
     # RESUMO EXECUTIVO
