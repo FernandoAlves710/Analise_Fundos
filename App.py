@@ -2,8 +2,12 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# =========================================================
+# CONFIGURAÇÃO INICIAL
+# =========================================================
+
 st.set_page_config(
-    page_title="Análise de Fundos",
+    page_title="Análise Profissional de Fundos",
     layout="wide"
 )
 
@@ -17,14 +21,14 @@ st.markdown("---")
 
 def converter_valor_brasileiro(valor):
     if pd.isna(valor):
-        return 0
+        return 0.0
     if isinstance(valor, (int, float)):
         return float(valor)
     valor = str(valor).replace(".", "").replace(",", ".")
     try:
         return float(valor)
     except:
-        return 0
+        return 0.0
 
 
 def formatar_moeda(valor):
@@ -77,7 +81,7 @@ if uploaded_file1:
 
 
 # =========================================================
-# PARTE 2 – ANÁLISE ESTRUTURAL DO BALANCETE
+# PARTE 2 – BALANCETE
 # =========================================================
 
 st.header("2. Estrutura da Carteira – Balancete (COSIF)")
@@ -118,76 +122,66 @@ if uploaded_file2:
         return True
 
     df_ativo["Conta_Analitica"] = df_ativo["Conta_limpa"].apply(eh_conta_analitica)
-    df_analitico = df_ativo[df_ativo["Conta_Analitica"] == True].copy()
+    df_analitico = df_ativo[df_ativo["Conta_Analitica"]].copy()
 
     # FILTRA TVM (13)
     df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
 
-    # CLASSIFICAÇÃO ECONÔMICA
+    # =====================================================
+    # CLASSIFICAÇÃO ECONÔMICA MELHORADA
+    # =====================================================
+
     def classificar(descricao):
 
-    descricao = descricao.upper()
+        descricao = descricao.upper()
 
-    # 1. OPERAÇÕES COMPROMISSADAS
-    if "COMPROMISS" in descricao:
-        return "Operações Compromissadas"
+        if "COMPROMISS" in descricao:
+            return "Operações Compromissadas"
 
-    # 2. TÍTULOS PÚBLICOS
-    if any(p in descricao for p in [
-        "TESOURO",
-        "LETRAS DO TESOURO",
-        "NOTAS DO TESOURO",
-        "LETRAS FINANCEIRAS DO TESOURO",
-        "TÍTULOS PÚBLICOS"
-    ]):
-        return "Títulos Públicos"
+        if any(p in descricao for p in [
+            "TESOURO",
+            "LETRAS DO TESOURO",
+            "NOTAS DO TESOURO",
+            "LETRAS FINANCEIRAS DO TESOURO",
+            "TÍTULOS PÚBLICOS"
+        ]):
+            return "Títulos Públicos"
 
-    # 3. TÍTULOS PRIVADOS
-    if any(p in descricao for p in [
-        "DEBÊNTURES", "DEBENTURES",
-        "LETRAS FINANCEIRAS",
-        "CDB", "CERTIFICADOS",
-        "CRI", "CRA",
-        "COTAS", "FUNDO",
-        "AÇÕES", "BDR",
-        "RENDA VARIAVEL",
-        "EXTERIOR"
-    ]):
-        return "Títulos Privados"
+        if any(p in descricao for p in [
+            "DEBÊNTURES", "DEBENTURES",
+            "LETRAS FINANCEIRAS",
+            "CDB", "CERTIFICADOS",
+            "CRI", "CRA",
+            "COTAS", "FUNDO",
+            "AÇÕES", "BDR",
+            "RENDA VARIAVEL",
+            "EXTERIOR"
+        ]):
+            return "Títulos Privados"
 
-    # 4. CAIXA / DISPONIBILIDADES
-    if any(p in descricao for p in [
-        "CAIXA",
-        "DISPONIBIL",
-        "BANCOS",
-        "CONTA CORRENTE"
-    ]):
-        return "Caixa e Disponibilidades"
+        if any(p in descricao for p in [
+            "CAIXA", "DISPONIBIL", "BANCOS"
+        ]):
+            return "Caixa e Disponibilidades"
 
-    # 5. DERIVATIVOS
-    if any(p in descricao for p in [
-        "FUTURO",
-        "OPÇÃO",
-        "SWAP",
-        "TERMO",
-        "DERIVAT"
-    ]):
-        return "Derivativos"
+        if any(p in descricao for p in [
+            "FUTURO", "OPÇÃO", "SWAP", "TERMO", "DERIVAT"
+        ]):
+            return "Derivativos"
 
-    # 6. PROVISÕES / OBRIGAÇÕES
-    if any(p in descricao for p in [
-        "PROVIS",
-        "OBRIGA",
-        "TAXA",
-        "DESPESA"
-    ]):
-        return "Provisões e Obrigações"
+        if any(p in descricao for p in [
+            "PROVIS", "OBRIGA", "TAXA", "DESPESA"
+        ]):
+            return "Provisões e Obrigações"
 
-    return "Outros"
+        return "Outros"
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
+    # =====================================================
     # CONSOLIDAÇÃO
+    # =====================================================
+
     consolidado = (
         df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
@@ -197,64 +191,60 @@ if uploaded_file2:
 
     total_tvm = consolidado["Valor Saldo"].sum()
 
+    # =====================================================
+    # RESUMO EXECUTIVO
+    # =====================================================
+
     st.subheader("Resumo Executivo")
 
-    cols = st.columns(len(consolidado))
+    colunas_metricas = st.columns(len(consolidado))
 
-    for i, row in consolidado.iterrows():
-        cols[i].metric(
-            row["Categoria"],
-            formatar_moeda(row["Valor Saldo"])
+    for i in range(len(consolidado)):
+        colunas_metricas[i].metric(
+            consolidado.iloc[i]["Categoria"],
+            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
         )
 
     st.metric("Total TVM", formatar_moeda(total_tvm))
 
     st.divider()
 
-# =====================================================
-# GRÁFICOS – TAMANHO AJUSTADO
-# =====================================================
+    # =====================================================
+    # GRÁFICOS AJUSTADOS
+    # =====================================================
 
-st.subheader("Distribuição da Carteira")
+    st.subheader("Distribuição da Carteira")
 
-col_graf1, col_graf2 = st.columns(2)
+    col_graf1, col_graf2 = st.columns(2)
 
-# -----------------------------
-# GRÁFICO DE PIZZA (menor)
-# -----------------------------
-with col_graf1:
-    fig1, ax1 = plt.subplots(figsize=(4, 4))  # tamanho reduzido
+    # Pizza
+    with col_graf1:
+        fig1, ax1 = plt.subplots(figsize=(4, 4))
+        ax1.pie(
+            consolidado["Valor Saldo"],
+            labels=consolidado["Categoria"],
+            autopct='%1.1f%%',
+            textprops={'fontsize': 9}
+        )
+        ax1.set_title("Alocação Percentual", fontsize=11)
+        st.pyplot(fig1)
 
-    ax1.pie(
-        consolidado["Valor Saldo"],
-        labels=consolidado["Categoria"],
-        autopct='%1.1f%%',
-        textprops={'fontsize': 9}
-    )
+    # Barras
+    with col_graf2:
+        fig2, ax2 = plt.subplots(figsize=(6, 3))
+        ax2.barh(
+            consolidado["Categoria"],
+            consolidado["Valor Saldo"]
+        )
+        ax2.set_title("Exposição por Categoria", fontsize=11)
+        ax2.tick_params(axis='y', labelsize=9)
+        ax2.tick_params(axis='x', labelsize=8)
+        st.pyplot(fig2)
 
-    ax1.set_title("Alocação Percentual", fontsize=11)
-    st.pyplot(fig1)
-
-
-# -----------------------------
-# GRÁFICO DE BARRAS (menor)
-# -----------------------------
-with col_graf2:
-    fig2, ax2 = plt.subplots(figsize=(6, 3))  # tamanho reduzido
-
-    ax2.barh(
-        consolidado["Categoria"],
-        consolidado["Valor Saldo"]
-    )
-
-    ax2.set_title("Exposição por Categoria", fontsize=11)
-    ax2.tick_params(axis='y', labelsize=9)
-    ax2.tick_params(axis='x', labelsize=8)
-
-    st.pyplot(fig2)
+    st.divider()
 
     # =====================================================
-    # TABELA ANALÍTICA ENXUTA
+    # TABELA ANALÍTICA
     # =====================================================
 
     st.subheader("Detalhamento Analítico")
