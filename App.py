@@ -1,206 +1,208 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from io import BytesIO
 
-st.set_page_config(page_title="Análise de Fundos", layout="centered")
+# ==========================================================
+# CONFIGURAÇÃO DA PÁGINA
+# ==========================================================
 
-st.title("Ferramenta de Análise de Fundos")
-st.markdown("---")
+st.set_page_config(
+    page_title="Análise de Fundos - COSIF",
+    layout="wide"
+)
 
-# ==============================
-# Funções auxiliares
-# ==============================
+st.title("📊 Ferramenta Profissional de Análise de Fundos")
+st.markdown("Estruturação automática do Balancete conforme hierarquia COSIF.")
+st.divider()
+
+# ==========================================================
+# FUNÇÕES AUXILIARES
+# ==========================================================
 
 def converter_valor_brasileiro(valor):
-    """Converte string com formato brasileiro em inteiro (sem centavos)."""
     if pd.isna(valor):
         return 0
     if isinstance(valor, (int, float)):
-        return int(valor)
-    valor = str(valor).strip().replace(".", "").split(",")[0]
+        return float(valor)
+    valor = str(valor).strip().replace(".", "").replace(",", ".")
     try:
-        return int(valor)
+        return float(valor)
     except:
         return 0
 
 
-# ==============================
-# PARTE 1 - PLANILHA 1
-# ==============================
+def identificar_contas_analiticas(df):
+    contas = df["Conta_limpa"].tolist()
+    analiticas = []
+
+    for c in contas:
+        if not any((outra != c and outra.startswith(c)) for outra in contas):
+            analiticas.append(c)
+
+    return df[df["Conta_limpa"].isin(analiticas)]
+
+
+def classificar_tvm(row):
+    conta = row["Conta_limpa"]
+    desc = row["Descrição da Conta"].upper()
+
+    # Compromissadas
+    if "COMPROMISSAD" in desc or conta.startswith("1319"):
+        return "Operações Compromissadas"
+
+    # Títulos Públicos
+    if conta.startswith("131"):
+        return "Títulos Públicos"
+
+    # Títulos Privados
+    if conta.startswith("132"):
+        return "Títulos Privados"
+
+    return "Outros"
+
+
+def gerar_excel_download(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="TVM_Classificado")
+    return output.getvalue()
+
+# ==========================================================
+# PARTE 1 – COTISTAS E PL
+# ==========================================================
 
 st.header("📈 Parte 1 – Cotistas e Patrimônio Líquido")
 
 uploaded_file1 = st.file_uploader(
-    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx):",
+    "Envie a planilha de Cotistas e PL (.xlsx)",
     type=["xlsx"],
-    key="planilha1"
+    key="pl"
 )
 
 if uploaded_file1:
     df1 = pd.read_excel(uploaded_file1)
     df1.columns = df1.columns.str.strip().str.lower()
 
-    # Normaliza nomes esperados
     df1.rename(columns={
-        "data": "data",
-        "cota": "cota",
-        "variação da cota diária": "variacao_cota",
-        "patrimônio": "patrimonio",
-        "captação": "captacao",
-        "resgate": "resgate",
-        "cotistas": "cotistas"
+        "patrimônio": "patrimonio"
     }, inplace=True)
 
-    # Converte colunas numéricas
     for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
-        df1[col] = df1[col].apply(converter_valor_brasileiro)
+        if col in df1.columns:
+            df1[col] = df1[col].apply(converter_valor_brasileiro)
 
-    # Extrai métricas corretamente
-    patrimonio_final = df1["patrimonio"].iloc[0]            # 1ª linha = data mais recente
-    patrimonio_inicial = df1["patrimonio"].iloc[-1]         # última linha = data mais antiga
+    patrimonio_final = df1["patrimonio"].iloc[0]
+    patrimonio_inicial = df1["patrimonio"].iloc[-1]
     variacao_patrimonio = patrimonio_final - patrimonio_inicial
-
-    cotistas_finais = df1["cotistas"].iloc[0]
     captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
-    st.subheader("📊 Resultados — Cotistas & Patrimônio")
-    st.metric("Cotistas (data final)", f"{cotistas_finais:,}".replace(",", "."))
-    st.metric("Patrimônio (final)", f"R$ {patrimonio_final:,}".replace(",", "."))
-    st.metric("Captação líquida (período)", f"R$ {captacoes_liquidas:,}".replace(",", "."))
-    st.metric("Variação do PL (final - inicial)", f"R$ {variacao_patrimonio:,}".replace(",", "."))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("PL Final", f"R$ {patrimonio_final:,.0f}".replace(",", "."))
+    c2.metric("Captação Líquida", f"R$ {captacoes_liquidas:,.0f}".replace(",", "."))
+    c3.metric("Variação PL", f"R$ {variacao_patrimonio:,.0f}".replace(",", "."))
+    c4.metric("Cotistas", f"{int(df1['cotistas'].iloc[0]):,}".replace(",", "."))
 
     st.divider()
 
+# ==========================================================
+# PARTE 2 – BALANCETE (COSIF)
+# ==========================================================
 
-# ==============================
-# PARTE 2 - PLANILHA 2
-# ==============================
-
-st.header("📘 Parte 2 – Balancete")
+st.header("📘 Parte 2 – Balancete Estruturado (COSIF)")
 
 uploaded_file2 = st.file_uploader(
-    "Envie a planilha de Balancete (.xlsx):",
+    "Envie a planilha de Balancete (.xlsx)",
     type=["xlsx"],
-    key="planilha2"
+    key="balancete"
 )
 
 if uploaded_file2:
     df2 = pd.read_excel(uploaded_file2)
     df2.columns = df2.columns.str.strip()
 
-    # Converte valores
     df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
     df2["Conta"] = df2["Conta"].astype(str)
 
-    # ==============================
-    # Dicionários de busca
-    # ==============================
+    # Limpa código COSIF
+    df2["Conta_limpa"] = (
+        df2["Conta"]
+        .str.replace(".", "", regex=False)
+        .str.replace("-", "", regex=False)
+        .str.strip()
+    )
 
-    operacoes_nome = "APLICAÇÕES EM OPERAÇÕES COMPROMISSADAS"
+    # Filtra apenas grupo 13 (TVM)
+    df2 = df2[df2["Conta_limpa"].str.startswith("13")]
 
-    titulos_publicos = [
-        "TÍTULOS PÚBLICOS FEDERAIS - TESOURO NACIONAL",
-        "LETRAS FINANCEIRAS DO TESOURO",
-        "LETRAS DO TESOURO NACIONAL",
-        "NOTAS DO TESOURO NACIONAL"
-    ]
+    # Identifica contas analíticas
+    df2_analitico = identificar_contas_analiticas(df2)
 
-    titulos_privados = [
-        "LETRAS FINANCEIRAS",
-        "DEBÊNTURES",
-        "LETRAS FINANCEIRAS SUBORDINADAS",
-        "COTAS DE FUNDOS DE INVESTIMENTO",
-        "COTAS DE FUNDO DE RENDA FIXA",
-        "COTAS DE FUNDO EM DIREITOS CREDITÓRIOS",
-        "CERTIFICADOS DE DEPÓSITO BANCÁRIO",
-        "CERTIFICADOS DE RECEBÍVEIS IMOBILIÁRIOS",
-        "COTAS DE FUNDO MULTIMERCADO",
-        "TÍTULOS DE RENDA VARIÁVEL",
-        "AÇÕES DE COMPANHIAS ABERTAS",
-        "COTAS DE FUNDO IMOBILIÁRIO",
-        "APLICAÇÕES EM TÍTULOS E VALORES MOBILIÁRIOS NO EXTERIOR",
-        "OUTROS TÍTULOS PRIVADOS - RENDA FIXA",
-        "BDR - CERTIFICADO DE DEPÓSITO DE AÇÕES",
-        "COTAS DE FUNDO DE INVESTIMENTO ÍNDICE DE MERCADO"
-    ]
+    # Classifica
+    df2_analitico["Categoria"] = df2_analitico.apply(classificar_tvm, axis=1)
+
+    # Resumo executivo
+    resumo = (
+        df2_analitico
+        .groupby("Categoria")["Valor Saldo"]
+        .sum()
+        .reset_index()
+    )
+
+    valor_publicos = resumo.loc[resumo["Categoria"]=="Títulos Públicos", "Valor Saldo"].sum()
+    valor_privados = resumo.loc[resumo["Categoria"]=="Títulos Privados", "Valor Saldo"].sum()
+    valor_comp = resumo.loc[resumo["Categoria"]=="Operações Compromissadas", "Valor Saldo"].sum()
 
     # ==============================
-    # Função para identificar subcontas diretas
+    # CARDS EXECUTIVOS
     # ==============================
 
-    def filtrar_subcontas(df, termos):
-        """Filtra linhas cujos nomes correspondem à lista de termos,
-        evitando duplicar subníveis (netos)."""
-        encontrados = df[df["Descrição da Conta"].isin(termos)].copy()
+    col1, col2, col3 = st.columns(3)
 
-        # Remove duplicações com base em códigos de subconta
-        codigos = encontrados["Conta"].astype(str).tolist()
-        subcontas = []
-        for codigo in codigos:
-            # considera como subconta direta se não houver outra conta
-            # cujo código seja prefixo menor desse
-            if not any(codigo.startswith(outra) and codigo != outra for outra in codigos):
-                subcontas.append(codigo)
-        return df[df["Conta"].isin(subcontas)]
-
-    # ==============================
-    # Cálculos
-    # ==============================
-
-    total_ativo = df2.loc[df2["Descrição da Conta"].str.contains("REALIZÁVEL", case=False, na=False), "Valor Saldo"].sum()
-
-    valor_operacoes = df2.loc[df2["Descrição da Conta"] == operacoes_nome, "Valor Saldo"].sum()
-
-    publicos_filtrados = filtrar_subcontas(df2, titulos_publicos)[["Descrição da Conta", "Valor Saldo"]]
-    privados_filtrados = filtrar_subcontas(df2, titulos_privados)[["Descrição da Conta", "Valor Saldo"]]
-
-    soma_publicos = publicos_filtrados["Valor Saldo"].sum()
-    soma_privados = privados_filtrados["Valor Saldo"].sum()
-
-    # ==============================
-    # Exibição Streamlit (mantendo layout original)
-    # ==============================
-
-    st.subheader("📊 Resultados — Balancete")
-    st.metric("Total de Ativos (Realizável)", f"R$ {total_ativo:,}".replace(",", "."))
-    st.metric("Aplicações em Operações Compromissadas", f"R$ {valor_operacoes:,}".replace(",", "."))
-
-    st.write("### 💛 Títulos Públicos")
-    st.dataframe(publicos_filtrados, use_container_width=True)
-    st.markdown(f"**Subtotal Títulos Públicos: R$ {soma_publicos:,.2f}**")
-
-    st.write("### 💚 Títulos Privados")
-    st.dataframe(privados_filtrados, use_container_width=True)
-    st.markdown(f"**Subtotal Títulos Privados: R$ {soma_privados:,.2f}**")
-
-    # ==============================
-    # Gráfico de pizza
-    # ==============================
+    col1.metric("Títulos Públicos", f"R$ {valor_publicos:,.0f}".replace(",", "."))
+    col2.metric("Títulos Privados", f"R$ {valor_privados:,.0f}".replace(",", "."))
+    col3.metric("Operações Compromissadas", f"R$ {valor_comp:,.0f}".replace(",", "."))
 
     st.divider()
-    st.subheader("📉 Composição da Carteira (apenas categorias)")
 
-    labels = ["Operações Compromissadas", "Títulos Públicos", "Títulos Privados"]
-    values = [valor_operacoes, soma_publicos, soma_privados]
+    # ==============================
+    # GRÁFICO
+    # ==============================
 
-    if sum(values) == 0:
-        st.info("Sem valores para composição (todas as categorias com valor zero).")
-    else:
-        fig, ax = plt.subplots(figsize=(3, 3))
-        wedges, texts, autotexts = ax.pie(
-            values,
-            autopct="%1.1f%%",
-            startangle=90,
-            textprops={"fontsize": 8}
-        )
-        ax.legend(
-            wedges,
-            labels,
-            title="Categorias",
-            loc="center left",
-            bbox_to_anchor=(1, 0, 0.5, 1),
-            fontsize=8,
-            title_fontsize=9
-        )
+    labels = ["Títulos Públicos", "Títulos Privados", "Compromissadas"]
+    values = [valor_publicos, valor_privados, valor_comp]
+
+    if sum(values) > 0:
+        fig, ax = plt.subplots(figsize=(4,4))
+        ax.pie(values, autopct="%1.1f%%", startangle=90)
         ax.axis("equal")
         st.pyplot(fig)
+    else:
+        st.info("Sem valores classificados em TVM.")
+
+    st.divider()
+
+    # ==============================
+    # TABELA DETALHADA
+    # ==============================
+
+    st.subheader("📋 Detalhamento Analítico (sem dupla contagem)")
+
+    tabela_final = df2_analitico[
+        ["Conta", "Descrição da Conta", "Categoria", "Valor Saldo"]
+    ].sort_values(by="Valor Saldo", ascending=False)
+
+    st.dataframe(tabela_final, use_container_width=True)
+
+    # ==============================
+    # DOWNLOAD EXCEL
+    # ==============================
+
+    excel_file = gerar_excel_download(tabela_final)
+
+    st.download_button(
+        label="📥 Baixar classificação em Excel",
+        data=excel_file,
+        file_name="classificacao_tvm.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
