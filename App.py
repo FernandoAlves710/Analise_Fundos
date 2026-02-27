@@ -51,37 +51,24 @@ class ContaNode:
     def eh_folha(self):
         return len(self.filhos) == 0
 
-    def soma_folhas(self):
-        if self.eh_folha():
-            return self.valor
-        return sum(filho.soma_folhas() for filho in self.filhos())
-
 # =========================================================
-# FUNÇÕES DE HIERARQUIA
+# FUNÇÕES DE HIERARQUIA (ROBUSTA)
 # =========================================================
 
-def normalizar_codigo(codigo):
-    codigo = str(codigo)
-    partes = codigo.split(".")
-    while len(partes) < 4:
-        partes.append("0")
-    return ".".join(partes[:4])
-
-def identificar_pai(codigo):
-    partes = codigo.split(".")
-    for i in range(len(partes) - 1, 0, -1):
-        if partes[i] != "0":
-            partes[i] = "0"
-            return ".".join(partes)
-    return None
+def limpar_codigo(codigo):
+    return str(codigo).replace("-", "").strip()
 
 def construir_arvore_tvm(df):
 
     df_13 = df[df["Conta"].astype(str).str.startswith("13")].copy()
-    df_13["Conta"] = df_13["Conta"].apply(normalizar_codigo)
+    df_13["Conta"] = df_13["Conta"].apply(limpar_codigo)
+
+    # Ordena por tamanho do código
+    df_13 = df_13.sort_values("Conta", key=lambda x: x.str.len())
 
     nodes = {}
 
+    # Criar nós
     for _, row in df_13.iterrows():
         nodes[row["Conta"]] = ContaNode(
             row["Conta"],
@@ -89,26 +76,26 @@ def construir_arvore_tvm(df):
             row["Valor Saldo"]
         )
 
-    for codigo, node in nodes.items():
-        pai_codigo = identificar_pai(codigo)
-        if pai_codigo and pai_codigo in nodes:
-            nodes[pai_codigo].adicionar_filho(node)
+    codigos = list(nodes.keys())
+
+    # Conectar por prefixo
+    for codigo in codigos:
+        for outro_codigo in codigos:
+            if (
+                codigo != outro_codigo
+                and outro_codigo.startswith(codigo)
+                and len(outro_codigo) > len(codigo)
+            ):
+                nodes[codigo].adicionar_filho(nodes[outro_codigo])
 
     return nodes
 
 def encontrar_raiz(nodes):
-    for node in nodes.values():
-        if node.pai is None:
-            return node
-    return None
+    # menor código iniciando em 13
+    return sorted(nodes.values(), key=lambda x: len(x.codigo))[0]
 
-def listar_folhas(node):
-    if node.eh_folha():
-        return [node]
-    folhas = []
-    for filho in node.filhos:
-        folhas.extend(listar_folhas(filho))
-    return folhas
+def listar_folhas(nodes):
+    return [node for node in nodes.values() if node.eh_folha()]
 
 # =========================================================
 # PARTE 1 – COTISTAS & PATRIMÔNIO
@@ -154,7 +141,7 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – BALANCETE COM ÁRVORE HIERÁRQUICA
+# PARTE 2 – BALANCETE COM HIERARQUIA REAL
 # =========================================================
 
 st.header("2. Estrutura da Carteira – Balancete (COSIF)")
@@ -173,125 +160,119 @@ if uploaded_file2:
     df2["Conta"] = df2["Conta"].astype(str)
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
-    # Construir árvore
     nodes = construir_arvore_tvm(df2)
     raiz = encontrar_raiz(nodes)
 
-    if raiz is None:
-        st.error("Não foi possível identificar a conta raiz 13.0.0.0")
-    else:
+    total_tvm_oficial = raiz.valor
+    folhas = listar_folhas(nodes)
 
-        total_tvm_oficial = raiz.valor
-        soma_folhas = raiz.soma_folhas()
-        diferenca = total_tvm_oficial - soma_folhas
+    soma_folhas = sum(n.valor for n in folhas)
+    diferenca = total_tvm_oficial - soma_folhas
 
-        folhas = listar_folhas(raiz)
+    df_folhas = pd.DataFrame([{
+        "Conta": n.codigo,
+        "Descrição da Conta": n.descricao,
+        "Valor Saldo": n.valor
+    } for n in folhas])
 
-        df_folhas = pd.DataFrame([{
-            "Conta": n.codigo,
-            "Descrição da Conta": n.descricao,
-            "Valor Saldo": n.valor
-        } for n in folhas])
+    # =====================================================
+    # CLASSIFICAÇÃO ECONÔMICA
+    # =====================================================
 
-        # =====================================================
-        # CLASSIFICAÇÃO ECONÔMICA
-        # =====================================================
+    def classificar(descricao):
 
-        def classificar(descricao):
+        if "COMPROMISS" in descricao:
+            return "Operações Compromissadas"
 
-            if "COMPROMISS" in descricao:
-                return "Operações Compromissadas"
+        if any(p in descricao for p in [
+            "TESOURO", "LETRAS DO TESOURO",
+            "NOTAS DO TESOURO", "TÍTULOS PÚBLICOS"
+        ]):
+            return "Títulos Públicos"
 
-            if any(p in descricao for p in [
-                "TESOURO", "LETRAS DO TESOURO",
-                "NOTAS DO TESOURO", "TÍTULOS PÚBLICOS"
-            ]):
-                return "Títulos Públicos"
+        if any(p in descricao for p in [
+            "DEBÊNTURES", "CDB", "CRI", "CRA",
+            "FUNDO", "AÇÕES", "BDR"
+        ]):
+            return "Títulos Privados"
 
-            if any(p in descricao for p in [
-                "DEBÊNTURES", "CDB", "CRI", "CRA",
-                "FUNDO", "AÇÕES", "BDR"
-            ]):
-                return "Títulos Privados"
+        if any(p in descricao for p in [
+            "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
+        ]):
+            return "Derivativos"
 
-            if any(p in descricao for p in [
-                "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
-            ]):
-                return "Derivativos"
+        return "Outros"
 
-            return "Outros"
+    df_folhas["Categoria"] = df_folhas["Descrição da Conta"].apply(classificar)
 
-        df_folhas["Categoria"] = df_folhas["Descrição da Conta"].apply(classificar)
+    consolidado = (
+        df_folhas.groupby("Categoria")["Valor Saldo"]
+        .sum()
+        .reset_index()
+        .sort_values("Valor Saldo", ascending=False)
+    )
 
-        consolidado = (
-            df_folhas.groupby("Categoria")["Valor Saldo"]
-            .sum()
-            .reset_index()
-            .sort_values("Valor Saldo", ascending=False)
+    consolidado["Percentual"] = (
+        consolidado["Valor Saldo"] / total_tvm_oficial
+    ) * 100
+
+    # =====================================================
+    # RESUMO
+    # =====================================================
+
+    st.subheader("Resumo Executivo")
+
+    colunas_metricas = st.columns(len(consolidado))
+
+    for i in range(len(consolidado)):
+        colunas_metricas[i].metric(
+            consolidado.iloc[i]["Categoria"],
+            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
         )
 
-        consolidado["Percentual"] = (
-            consolidado["Valor Saldo"] / total_tvm_oficial
-        ) * 100
+    st.metric("Total TVM (Oficial)", formatar_moeda(total_tvm_oficial))
 
-        # =====================================================
-        # RESUMO
-        # =====================================================
+    if abs(diferenca) > 1:
+        st.warning(f"Diferença entre Total e Folhas: {formatar_moeda(diferenca)}")
+    else:
+        st.success("Validação estrutural OK – Total fecha com as folhas.")
 
-        st.subheader("Resumo Executivo")
+    st.divider()
 
-        colunas_metricas = st.columns(len(consolidado))
+    # =====================================================
+    # GRÁFICOS
+    # =====================================================
 
-        for i in range(len(consolidado)):
-            colunas_metricas[i].metric(
-                consolidado.iloc[i]["Categoria"],
-                formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
-            )
+    col_graf1, col_graf2 = st.columns([1, 1.2])
 
-        st.metric("Total TVM (Oficial)", formatar_moeda(total_tvm_oficial))
+    with col_graf1:
+        fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
+        ax1.pie(
+            consolidado["Valor Saldo"],
+            labels=consolidado["Categoria"],
+            autopct='%1.1f%%',
+            textprops={'fontsize': 8}
+        )
+        st.pyplot(fig1)
 
-        if abs(diferenca) > 1:
-            st.warning(f"Diferença entre Total e Soma das Folhas: {formatar_moeda(diferenca)}")
-        else:
-            st.success("Validação estrutural OK – Total fecha com as folhas.")
+    with col_graf2:
+        fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
+        ax2.barh(
+            consolidado["Categoria"],
+            consolidado["Percentual"]
+        )
+        ax2.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
+        )
+        st.pyplot(fig2)
 
-        st.divider()
+    st.divider()
 
-        # =====================================================
-        # GRÁFICOS
-        # =====================================================
+    # =====================================================
+    # DETALHAMENTO
+    # =====================================================
 
-        col_graf1, col_graf2 = st.columns([1, 1.2])
+    st.subheader("Detalhamento das Contas Folha")
 
-        with col_graf1:
-            fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
-            ax1.pie(
-                consolidado["Valor Saldo"],
-                labels=consolidado["Categoria"],
-                autopct='%1.1f%%',
-                textprops={'fontsize': 8}
-            )
-            st.pyplot(fig1)
-
-        with col_graf2:
-            fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
-            ax2.barh(
-                consolidado["Categoria"],
-                consolidado["Percentual"]
-            )
-            ax2.xaxis.set_major_formatter(
-                plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
-            )
-            st.pyplot(fig2)
-
-        st.divider()
-
-        # =====================================================
-        # DETALHAMENTO
-        # =====================================================
-
-        st.subheader("Detalhamento das Contas Folha")
-
-        df_folhas["Valor Saldo"] = df_folhas["Valor Saldo"].apply(formatar_moeda)
-
-        st.dataframe(df_folhas, use_container_width=True)
+    df_folhas["Valor Saldo"] = df_folhas["Valor Saldo"].apply(formatar_moeda)
+    st.dataframe(df_folhas, use_container_width=True)
