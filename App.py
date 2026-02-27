@@ -163,13 +163,41 @@ if uploaded_file2:
 
     st.subheader("Resumo Executivo")
 
-    cols = st.columns(len(consolidado))
+    st.subheader("Resumo Executivo")
 
-    for i in range(len(consolidado)):
-        cols[i].metric(
-            consolidado.iloc[i]["Categoria"],
-            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
+cols = st.columns(len(consolidado))
+
+for i in range(len(consolidado)):
+
+    categoria = consolidado.iloc[i]["Categoria"]
+    valor_total = consolidado.iloc[i]["Valor Saldo"]
+
+    with cols[i]:
+        st.metric(
+            categoria,
+            formatar_moeda(valor_total)
         )
+
+        # 👇 Mostrar composição da soma
+        with st.expander("Ver composição"):
+            
+            df_categoria = df_tvm[df_tvm["Categoria"] == categoria].copy()
+
+            df_categoria = df_categoria.sort_values(
+                "Valor Saldo",
+                ascending=False
+            )
+
+            soma_check = df_categoria["Valor Saldo"].sum()
+
+            st.write("Soma interna:", formatar_moeda(soma_check))
+
+            df_categoria["Valor Saldo"] = df_categoria["Valor Saldo"].apply(formatar_moeda)
+
+            st.dataframe(
+                df_categoria[["Conta", "Descrição da Conta", "Valor Saldo"]],
+                use_container_width=True
+            )
 
     st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
 
