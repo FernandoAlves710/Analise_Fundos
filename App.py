@@ -108,7 +108,22 @@ if uploaded_file2:
 
     df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
 
-    # FILTRA ATIVO
+    # =====================================================
+    # TOTAL OFICIAL TVM (CONTA SINTÉTICA 13 MAIS CURTA)
+    # =====================================================
+
+    df_tvm_sintetico = df2[df2["Conta_limpa"].str.startswith("13")].copy()
+
+    df_tvm_sintetico["tamanho"] = df_tvm_sintetico["Conta_limpa"].str.len()
+
+    conta_total_tvm = df_tvm_sintetico.sort_values("tamanho").iloc[0]
+
+    total_tvm_oficial = conta_total_tvm["Valor Saldo"]
+
+    # =====================================================
+    # FILTRA APENAS ATIVO
+    # =====================================================
+
     df_ativo = df2[df2["Conta_limpa"].str.startswith("1")].copy()
 
     # IDENTIFICA CONTAS ANALÍTICAS
@@ -124,16 +139,14 @@ if uploaded_file2:
     df_ativo["Conta_Analitica"] = df_ativo["Conta_limpa"].apply(eh_conta_analitica)
     df_analitico = df_ativo[df_ativo["Conta_Analitica"]].copy()
 
-    # FILTRA TVM (13)
+    # FILTRA TVM ANALÍTICO
     df_tvm = df_analitico[df_analitico["Conta_limpa"].str.startswith("13")].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO ECONÔMICA MELHORADA
+    # CLASSIFICAÇÃO
     # =====================================================
 
     def classificar(descricao):
-
-        descricao = descricao.upper()
 
         if "COMPROMISS" in descricao:
             return "Operações Compromissadas"
@@ -179,7 +192,7 @@ if uploaded_file2:
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
     # =====================================================
-    # CONSOLIDAÇÃO
+    # CONSOLIDAÇÃO (PARA DISTRIBUIÇÃO)
     # =====================================================
 
     consolidado = (
@@ -189,16 +202,9 @@ if uploaded_file2:
         .sort_values("Valor Saldo", ascending=False)
     )
 
-    df_tvm_sintetico = df2[
-    df2["Conta_limpa"].str.startswith("13")
-].copy()
-
-# pega a conta 13 mais curta (nível superior)
-df_tvm_sintetico["tamanho"] = df_tvm_sintetico["Conta_limpa"].str.len()
-
-conta_total_tvm = df_tvm_sintetico.sort_values("tamanho").iloc[0]
-
-total_tvm = conta_total_tvm["Valor Saldo"]
+    consolidado["Percentual"] = (
+        consolidado["Valor Saldo"] / total_tvm_oficial
+    ) * 100
 
     # =====================================================
     # RESUMO EXECUTIVO
@@ -214,87 +220,70 @@ total_tvm = conta_total_tvm["Valor Saldo"]
             formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
         )
 
-    st.metric("Total TVM", formatar_moeda(total_tvm))
+    st.metric("Total TVM (Oficial)", formatar_moeda(total_tvm_oficial))
 
     st.divider()
 
     # =====================================================
-# GRÁFICOS AJUSTADOS (MAIS COMPACTOS)
-# =====================================================
+    # GRÁFICOS
+    # =====================================================
 
-st.subheader("Distribuição da Carteira")
+    st.subheader("Distribuição da Carteira")
 
-col_graf1, col_graf2 = st.columns([1, 1.2])
+    col_graf1, col_graf2 = st.columns([1, 1.2])
 
-# Pizza menor
-with col_graf1:
-    fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
-
-    ax1.pie(
-        consolidado["Valor Saldo"],
-        labels=consolidado["Categoria"],
-        autopct='%1.1f%%',
-        textprops={'fontsize': 8}
-    )
-
-    ax1.set_title("Alocação Percentual", fontsize=10)
-    st.pyplot(fig1)
-
-
-# Barras em percentual (sem notação científica)
-with col_graf2:
-    
-    consolidado["Percentual"] = (
-        consolidado["Valor Saldo"] / consolidado["Valor Saldo"].sum()
-    ) * 100
-
-    fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
-
-    ax2.barh(
-        consolidado["Categoria"],
-        consolidado["Percentual"]
-    )
-
-    ax2.set_title("Exposição por Categoria (%)", fontsize=10)
-    ax2.set_xlabel("Percentual da Carteira", fontsize=9)
-
-    ax2.tick_params(axis='y', labelsize=8)
-    ax2.tick_params(axis='x', labelsize=8)
-
-    # Formata eixo X como percentual
-    ax2.xaxis.set_major_formatter(
-        plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
-    )
-
-    st.pyplot(fig2)
-
-st.divider()
-
-# =====================================================
-# DETALHAMENTO ANALÍTICO HIERÁRQUICO
-# =====================================================
-
-st.subheader("Detalhamento Analítico Estruturado")
-
-for categoria in consolidado["Categoria"]:
-
-    df_categoria = df_tvm[df_tvm["Categoria"] == categoria].copy()
-
-    total_categoria = df_categoria["Valor Saldo"].sum()
-
-    with st.expander(f"{categoria} — {formatar_moeda(total_categoria)}"):
-
-        tabela_categoria = df_categoria[
-            ["Conta_limpa", "Descrição da Conta", "Valor Saldo"]
-        ].sort_values("Valor Saldo", ascending=False)
-
-        tabela_categoria["Valor Saldo"] = tabela_categoria["Valor Saldo"].apply(formatar_moeda)
-
-        st.dataframe(
-            tabela_categoria.rename(columns={
-                "Conta_limpa": "Conta",
-                "Descrição da Conta": "Descrição",
-                "Valor Saldo": "Valor Saldo"
-            }),
-            use_container_width=True
+    # Pizza menor
+    with col_graf1:
+        fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
+        ax1.pie(
+            consolidado["Valor Saldo"],
+            labels=consolidado["Categoria"],
+            autopct='%1.1f%%',
+            textprops={'fontsize': 8}
         )
+        ax1.set_title("Alocação Percentual", fontsize=10)
+        st.pyplot(fig1)
+
+    # Barras em percentual
+    with col_graf2:
+        fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
+        ax2.barh(
+            consolidado["Categoria"],
+            consolidado["Percentual"]
+        )
+        ax2.set_title("Exposição por Categoria (%)", fontsize=10)
+        ax2.set_xlabel("Percentual da Carteira", fontsize=9)
+        ax2.xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
+        )
+        ax2.tick_params(axis='both', labelsize=8)
+        st.pyplot(fig2)
+
+    st.divider()
+
+    # =====================================================
+    # DETALHAMENTO HIERÁRQUICO
+    # =====================================================
+
+    st.subheader("Detalhamento Analítico Estruturado")
+
+    for categoria in consolidado["Categoria"]:
+
+        df_categoria = df_tvm[df_tvm["Categoria"] == categoria].copy()
+        total_categoria = df_categoria["Valor Saldo"].sum()
+
+        with st.expander(f"{categoria} — {formatar_moeda(total_categoria)}"):
+
+            tabela_categoria = df_categoria[
+                ["Conta_limpa", "Descrição da Conta", "Valor Saldo"]
+            ].sort_values("Valor Saldo", ascending=False)
+
+            tabela_categoria["Valor Saldo"] = tabela_categoria["Valor Saldo"].apply(formatar_moeda)
+
+            st.dataframe(
+                tabela_categoria.rename(columns={
+                    "Conta_limpa": "Conta",
+                    "Descrição da Conta": "Descrição"
+                }),
+                use_container_width=True
+            )
