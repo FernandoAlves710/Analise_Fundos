@@ -63,10 +63,9 @@ def construir_arvore_tvm(df):
     df_13 = df[df["Conta"].astype(str).str.startswith("13")].copy()
     df_13["Conta"] = df_13["Conta"].apply(limpar_codigo)
 
-    df_13 = df_13.sort_values("Conta", key=lambda x: x.str.len())
-
     nodes = {}
 
+    # Criar nós
     for _, row in df_13.iterrows():
         nodes[row["Conta"]] = ContaNode(
             row["Conta"],
@@ -74,18 +73,20 @@ def construir_arvore_tvm(df):
             row["Valor Saldo"]
         )
 
-    codigos_ordenados = sorted(nodes.keys(), key=len)
+    for codigo in list(nodes.keys()):
 
-    for codigo in codigos_ordenados:
-
-        possiveis_pais = [
-            c for c in codigos_ordenados
-            if len(c) < len(codigo) and codigo.startswith(c)
+        # Hierarquia por blocos de 2 dígitos
+        niveis = [
+            codigo[:2],
+            codigo[:4],
+            codigo[:6],
+            codigo[:8]
         ]
 
-        if possiveis_pais:
-            pai_correto = max(possiveis_pais, key=len)
-            nodes[pai_correto].adicionar_filho(nodes[codigo])
+        for nivel in niveis[:-1]:
+            if nivel in nodes and nivel != codigo:
+                nodes[nivel].adicionar_filho(nodes[codigo])
+                break
 
     return nodes
 
