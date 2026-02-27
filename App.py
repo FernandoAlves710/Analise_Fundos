@@ -232,18 +232,30 @@ with col_graf1:
     st.pyplot(fig1)
 
 
-# Barras proporcional
+# Barras em percentual (sem notação científica)
 with col_graf2:
+    
+    consolidado["Percentual"] = (
+        consolidado["Valor Saldo"] / consolidado["Valor Saldo"].sum()
+    ) * 100
+
     fig2, ax2 = plt.subplots(figsize=(5.5, 2.8))
 
     ax2.barh(
         consolidado["Categoria"],
-        consolidado["Valor Saldo"]
+        consolidado["Percentual"]
     )
 
-    ax2.set_title("Exposição por Categoria", fontsize=10)
+    ax2.set_title("Exposição por Categoria (%)", fontsize=10)
+    ax2.set_xlabel("Percentual da Carteira", fontsize=9)
+
     ax2.tick_params(axis='y', labelsize=8)
     ax2.tick_params(axis='x', labelsize=8)
+
+    # Formata eixo X como percentual
+    ax2.xaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
+    )
 
     st.pyplot(fig2)
 
