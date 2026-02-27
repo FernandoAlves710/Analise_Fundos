@@ -76,10 +76,10 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM)
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM = 100%)
 # =========================================================
 
-st.header("2. Exposição Econômica da Carteira (TVM)")
+st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
 
 uploaded_file2 = st.file_uploader(
     "Envie a planilha de Balancete (.xlsx)",
@@ -105,10 +105,10 @@ if uploaded_file2:
         st.error("Conta 13000004 não encontrada na planilha.")
         st.stop()
 
-    total_tvm_oficial = linha_total["Valor Saldo"].iloc[0]
+    total_tvm = linha_total["Valor Saldo"].iloc[0]
 
     # =====================================================
-    # CONSIDERAR APENAS CONTAS ANALÍTICAS DIFERENTES DO TOTAL
+    # CONSIDERAR APENAS CONTAS ANALÍTICAS
     # =====================================================
 
     df_tvm = df2[
@@ -118,13 +118,15 @@ if uploaded_file2:
     ].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO ECONÔMICA
+    # CLASSIFICAÇÃO SIMPLIFICADA (SEM OUTROS)
     # =====================================================
 
     def classificar(descricao):
 
-        if "COMPROMISS" in descricao:
-            return "Operações Compromissadas"
+        if any(p in descricao for p in [
+            "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
+        ]):
+            return "Derivativos"
 
         if any(p in descricao for p in [
             "TESOURO", "LETRA DO TESOURO",
@@ -132,18 +134,7 @@ if uploaded_file2:
         ]):
             return "Títulos Públicos"
 
-        if any(p in descricao for p in [
-            "DEBÊNTURE", "CDB", "CRI", "CRA",
-            "FUNDO", "AÇÃO", "BDR"
-        ]):
-            return "Títulos Privados"
-
-        if any(p in descricao for p in [
-            "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
-        ]):
-            return "Derivativos"
-
-        return "Outros"
+        return "Títulos Privados"
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
@@ -151,11 +142,10 @@ if uploaded_file2:
         df_tvm.groupby("Categoria")["Valor Saldo"]
         .sum()
         .reset_index()
-        .sort_values("Valor Saldo", ascending=False)
     )
 
     consolidado["Percentual"] = (
-        consolidado["Valor Saldo"] / total_tvm_oficial
+        consolidado["Valor Saldo"] / total_tvm
     ) * 100
 
     # =====================================================
@@ -164,25 +154,21 @@ if uploaded_file2:
 
     st.subheader("Resumo Executivo")
 
-    colunas_metricas = st.columns(len(consolidado))
+    col1, col2, col3 = st.columns(3)
 
-    for i in range(len(consolidado)):
-        colunas_metricas[i].metric(
-            consolidado.iloc[i]["Categoria"],
-            formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
-        )
+    for i, col in enumerate([col1, col2, col3]):
+        if i < len(consolidado):
+            col.metric(
+                consolidado.iloc[i]["Categoria"],
+                formatar_moeda(consolidado.iloc[i]["Valor Saldo"])
+            )
 
-    st.metric("Total TVM (Oficial - 13000004)", formatar_moeda(total_tvm_oficial))
-
-    st.info(
-        "Os percentuais representam exposição econômica. "
-        "Podem ultrapassar 100% devido a derivativos e alavancagem."
-    )
+    st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
 
     st.divider()
 
     # =====================================================
-    # GRÁFICOS
+    # GRÁFICOS (BASE = 100%)
     # =====================================================
 
     col_graf1, col_graf2 = st.columns([1, 1.2])
@@ -190,10 +176,10 @@ if uploaded_file2:
     with col_graf1:
         fig1, ax1 = plt.subplots(figsize=(3, 3))
         ax1.pie(
-            consolidado["Valor Saldo"],
+            consolidado["Percentual"],
             labels=consolidado["Categoria"],
             autopct='%1.1f%%',
-            textprops={'fontsize': 8}
+            textprops={'fontsize': 9}
         )
         st.pyplot(fig1)
 
@@ -214,7 +200,7 @@ if uploaded_file2:
     # TABELA DETALHADA
     # =====================================================
 
-    st.subheader("Detalhamento das Contas")
+    st.subheader("Detalhamento das Contas Consideradas")
 
     df_tvm["Valor Saldo"] = df_tvm["Valor Saldo"].apply(formatar_moeda)
 
