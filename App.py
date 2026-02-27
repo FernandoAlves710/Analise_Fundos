@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
 
@@ -23,7 +23,7 @@ def limpar_valor(valor):
 
 
 # =========================================================
-# UPLOAD
+# APP
 # =========================================================
 
 st.title("Análise de TVM")
@@ -34,34 +34,33 @@ if arquivo:
 
     df = pd.read_excel(arquivo)
 
-    # -----------------------------------------------------
+    # ---------------------------
     # PADRONIZAÇÃO
-    # -----------------------------------------------------
+    # ---------------------------
 
     df.columns = df.columns.str.strip()
 
     df["Valor Saldo"] = df["Valor Saldo"].apply(limpar_valor)
     df["Conta"] = df["Conta"].astype(str)
 
-    # =====================================================
+    # ---------------------------
     # PLANILHA 1 (BASE COMPLETA)
-    # =====================================================
+    # ---------------------------
 
     st.subheader("Planilha 1 - Base Completa")
     st.dataframe(df, use_container_width=True)
 
-    # =====================================================
-    # FILTRAR TVM (13000004)
-    # =====================================================
+    # ---------------------------
+    # FILTRAR TVM (grupo 13)
+    # ---------------------------
 
     df_tvm = df[df["Conta"].str.startswith("13")].copy()
 
-    # Código oficial TVM
     total_tvm_oficial = df[df["Conta"] == "13000004"]["Valor Saldo"].sum()
 
-    # =====================================================
+    # ---------------------------
     # CLASSIFICAÇÃO
-    # =====================================================
+    # ---------------------------
 
     def classificar(conta):
 
@@ -81,9 +80,9 @@ if arquivo:
 
     df_tvm = df_tvm[df_tvm["Categoria"].notna()].copy()
 
-    # =====================================================
+    # ---------------------------
     # CONSOLIDAÇÃO
-    # =====================================================
+    # ---------------------------
 
     consolidado = (
         df_tvm.groupby("Categoria")["Valor Saldo"]
@@ -122,7 +121,6 @@ if arquivo:
                 )
 
                 soma_check = float(df_categoria["Valor Saldo"].sum())
-
                 diferenca = soma_check - valor_total
 
                 st.write("Soma interna:", formatar_moeda(soma_check))
@@ -141,34 +139,41 @@ if arquivo:
                 )
 
     # =====================================================
-    # GRÁFICO DE PIZZA (100% = TVM OFICIAL)
+    # GRÁFICO DE PIZZA
     # =====================================================
 
     st.subheader("Distribuição % sobre Total TVM")
 
-    consolidado["Percentual"] = consolidado["Valor Saldo"] / total_tvm_oficial * 100
+    if total_tvm_oficial != 0:
 
-    fig = px.pie(
-        consolidado,
-        names="Categoria",
-        values="Percentual",
-        hole=0.4
-    )
+        percentuais = consolidado["Valor Saldo"] / total_tvm_oficial * 100
 
-    fig.update_layout(
-        height=450
-    )
+        fig, ax = plt.subplots()
 
-    st.plotly_chart(fig, use_container_width=True)
+        ax.pie(
+            percentuais,
+            labels=consolidado["Categoria"],
+            autopct="%1.1f%%"
+        )
+
+        ax.axis("equal")
+
+        st.pyplot(fig)
 
     # =====================================================
-    # TABELA EXPOSIÇÃO (%)
+    # TABELA DE EXPOSIÇÃO %
     # =====================================================
 
     st.subheader("Exposição por Categoria (%)")
 
     tabela_percentual = consolidado.copy()
-    tabela_percentual["Percentual (%)"] = tabela_percentual["Percentual"].round(2)
+
+    if total_tvm_oficial != 0:
+        tabela_percentual["Percentual (%)"] = (
+            tabela_percentual["Valor Saldo"] / total_tvm_oficial * 100
+        ).round(2)
+    else:
+        tabela_percentual["Percentual (%)"] = 0
 
     st.dataframe(
         tabela_percentual[["Categoria", "Percentual (%)"]],
@@ -176,13 +181,13 @@ if arquivo:
     )
 
     # =====================================================
-    # CHECK DE CONSISTÊNCIA GLOBAL
+    # VALIDAÇÃO FINAL
     # =====================================================
+
+    st.subheader("Validação")
 
     soma_folhas = consolidado["Valor Saldo"].sum()
     diferenca_total = soma_folhas - total_tvm_oficial
-
-    st.subheader("Validação")
 
     st.write("Total TVM Oficial:", formatar_moeda(total_tvm_oficial))
     st.write("Soma das Categorias:", formatar_moeda(soma_folhas))
