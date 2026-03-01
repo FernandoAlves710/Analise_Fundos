@@ -337,16 +337,16 @@ def card(titulo, valor):
         unsafe_allow_html=True
     )
 
-    with col1:
+with col1:
     card("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
 
-    with col2:
+with col2:
     card("Patrimônio Final", formatar_moeda(patrimonio_final))
 
-    with col3:
+ with col3:
     card("Captação Líquida", formatar_moeda(captacoes_liquidas))
 
-    with col4:
+with col4:
     card("Variação do PL", formatar_moeda(variacao_patrimonio))
 
 # =========================================================
