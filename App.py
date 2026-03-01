@@ -55,25 +55,6 @@ def list_to_text(lst):
 def text_to_list(txt):
     return [t.strip().upper() for t in txt.split("\n") if t.strip()]
 
-def identificar_folhas_por_prefixo(df_contas: pd.DataFrame, col_conta: str = "Conta") -> pd.DataFrame:
-    """
-    Marca e retorna apenas contas folha:
-    uma conta é totalizadora se existir alguma outra conta que começa com ela e é diferente.
-    """
-    contas = df_contas[col_conta].astype(str).tolist()
-    contas_set = set(contas)
-
-    def eh_folha(c):
-        # se existir "outra" que tenha prefixo = c, então c é pai (não folha)
-        for outra in contas_set:
-            if outra != c and outra.startswith(c):
-                return False
-        return True
-
-    df = df_contas.copy()
-    df["Folha"] = df[col_conta].apply(eh_folha)
-    return df[df["Folha"]].copy()
-
 # =========================================================
 # SIDEBAR – TERMOS EXTRAS + EXCLUSÕES
 # =========================================================
@@ -88,7 +69,10 @@ if "termos_extras" not in st.session_state:
     }
 
 st.sidebar.subheader("Termos extras (opcional)")
-st.sidebar.caption("Adiciona termos às regras base, sem alterar o que já funciona.")
+st.sidebar.caption(
+    "Adiciona termos às regras base (sem alterar o que já funcionava). "
+    "Se deixar em branco, o resultado fica igual ao seu baseline."
+)
 
 json_upload = st.sidebar.file_uploader("Importar termos extras (JSON)", type=["json"])
 if json_upload is not None:
@@ -104,13 +88,11 @@ txt_der = st.sidebar.text_area(
     value=list_to_text(st.session_state.termos_extras["Derivativos"]),
     height=110
 )
-
 txt_pub = st.sidebar.text_area(
     "Títulos Públicos – termos extras (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Públicos"]),
     height=110
 )
-
 txt_priv = st.sidebar.text_area(
     "Títulos Privados – termos extras (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Privados"]),
@@ -131,21 +113,18 @@ st.sidebar.download_button(
 )
 
 st.sidebar.divider()
-st.sidebar.subheader("Exclusões (opcional)")
-st.sidebar.caption(
-    "Use para excluir contas (ou subárvores) pelo prefixo do código. "
-    "Ex.: '1361' excluiria 13610009 e seus filhos."
-)
+st.sidebar.subheader("Exclusões (fallback)")
+st.sidebar.caption("Exclui subárvores por prefixo (1 por linha). Ex.: 1361")
 
 exclusoes_texto = st.sidebar.text_area(
-    "Prefixos para excluir (1 por linha)",
+    "Prefixos para excluir",
     value="",
-    height=110
+    height=90
 )
 PREFIXOS_EXCLUIR = [p.strip() for p in exclusoes_texto.split("\n") if p.strip()]
 
 # =========================================================
-# REGRAS BASE (AS DO SEU CÓDIGO)
+# REGRAS BASE (baseline que você disse estar correto)
 # =========================================================
 
 BASE_DERIVATIVOS = ["FUTURO", "OPÇÃO", "SWAP", "DERIVAT"]
@@ -163,6 +142,7 @@ def classificar(descricao: str) -> str | None:
     pub = BASE_PUBLICOS + st.session_state.termos_extras["Títulos Públicos"]
     priv = BASE_PRIVADOS + st.session_state.termos_extras["Títulos Privados"]
 
+    # mesma precedência do baseline
     if any(p in desc for p in der):
         return "Derivativos"
     if any(p in desc for p in pub):
@@ -180,7 +160,64 @@ def aplicar_exclusoes(df: pd.DataFrame) -> pd.DataFrame:
     return df[mask].copy()
 
 # =========================================================
-# PARTE 1 – COTISTAS & PATRIMÔNIO LÍQUIDO (NÃO MEXER)
+# REMOÇÃO INTELIGENTE DE TOTALIZADORAS (pelo valor ≈ soma)
+# =========================================================
+
+def remover_totalizadoras_por_soma(df: pd.DataFrame, tolerancia_abs: float = 0.5) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Identifica totalizadoras por regra: valor da conta ≈ soma das demais no grupo.
+    Agrupa por chave baseada em 'Conta' truncada (heurística COSIF).
+    Retorna (df_sem_totalizadoras, df_totalizadoras_removidas).
+    """
+    work = df.copy()
+
+    # só faz sentido com conta numérica em string
+    work["Conta"] = work["Conta"].astype(str).str.strip()
+    work["Valor Saldo"] = pd.to_numeric(work["Valor Saldo"], errors="coerce").fillna(0.0)
+
+    removed_rows = []
+
+    # Heurística: usar chave = primeiros (len-3) dígitos, quando len>=6
+    # Isso captura seus casos: 13115xxx / 13120xxx / 13610xxx etc.
+    def chave_grupo(c):
+        c = str(c)
+        if len(c) >= 6:
+            return c[:len(c)-3]
+        return c[:-1]  # fallback simples
+
+    work["ChaveGrupo"] = work["Conta"].apply(chave_grupo)
+
+    # Iterar: remover totalizadores em cascata
+    changed = True
+    while changed:
+        changed = False
+        for key, g in work.groupby("ChaveGrupo"):
+            if len(g) < 2:
+                continue
+
+            total_group = float(g["Valor Saldo"].sum())
+
+            # procura um candidato cujo valor ≈ soma dos outros
+            for idx, row in g.iterrows():
+                v = float(row["Valor Saldo"])
+                soma_outros = total_group - v
+
+                if abs(v - soma_outros) <= tolerancia_abs and soma_outros > 0:
+                    removed_rows.append(work.loc[idx])
+                    work = work.drop(index=idx)
+                    changed = True
+                    break  # recomeça grupo (work mudou)
+            if changed:
+                break
+
+    removed_df = pd.DataFrame(removed_rows) if removed_rows else pd.DataFrame(columns=work.columns)
+    work = work.drop(columns=["ChaveGrupo"], errors="ignore")
+    removed_df = removed_df.drop(columns=["ChaveGrupo"], errors="ignore")
+
+    return work, removed_df
+
+# =========================================================
+# PARTE 1 – COTISTAS & PATRIMÔNIO (INTACTO)
 # =========================================================
 
 st.header("1. Cotistas e Patrimônio Líquido")
@@ -192,7 +229,6 @@ uploaded_file1 = st.file_uploader(
 )
 
 if uploaded_file1:
-
     df1 = pd.read_excel(uploaded_file1)
     df1.columns = df1.columns.str.strip().str.lower()
 
@@ -214,16 +250,14 @@ if uploaded_file1:
     captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
     col1, col2, col3, col4 = st.columns(4)
-
     col1.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
     col2.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
     col3.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
     col4.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
-
     st.divider()
 
 # =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA (MULTI-UPLOAD + FOLHAS)
+# PARTE 2 – MULTI-UPLOAD + TOTALIZADORAS
 # =========================================================
 
 st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
@@ -242,28 +276,28 @@ def processar_balancete(df2: pd.DataFrame):
 
     total_row = df2[df2["Conta"] == "13000004"]
     if total_row.empty:
-        return None, None, None, None, "Conta 13000004 não encontrada."
+        return None, None, None, None, None, "Conta 13000004 não encontrada."
 
     total_tvm = float(total_row["Valor Saldo"].iloc[0])
 
-    # universo: grupo 13 (exceto total)
+    # universo: 13 (exceto total) e !=0
     df_tvm = df2[
         (df2["Conta"].str.startswith("13")) &
         (df2["Conta"] != "13000004") &
         (df2["Valor Saldo"] != 0)
     ].copy()
 
-    # aplica exclusões opcionais
+    # exclusões opcionais
     df_tvm = aplicar_exclusoes(df_tvm)
 
-    # >>> ponto CRUCIAL: remover totalizadores e manter apenas folhas <<<
-    df_folhas = identificar_folhas_por_prefixo(df_tvm, col_conta="Conta")
+    # REMOVER TOTALIZADORAS POR SOMA (resolve dupla contagem)
+    df_sem_totais, df_totais_removidas = remover_totalizadoras_por_soma(df_tvm, tolerancia_abs=0.5)
 
-    # classifica apenas as folhas (evita dupla contagem)
-    df_folhas["Categoria"] = df_folhas["Descrição da Conta"].apply(classificar)
+    # classifica só o que sobrou (itens "analíticos" por evidência)
+    df_sem_totais["Categoria"] = df_sem_totais["Descrição da Conta"].apply(classificar)
 
-    df_class = df_folhas[df_folhas["Categoria"].notna()].copy()
-    df_nao_class = df_folhas[df_folhas["Categoria"].isna()].copy()
+    df_class = df_sem_totais[df_sem_totais["Categoria"].notna()].copy()
+    df_nao_class = df_sem_totais[df_sem_totais["Categoria"].isna()].copy()
 
     consolidado = (
         df_class.groupby("Categoria")["Valor Saldo"]
@@ -273,15 +307,14 @@ def processar_balancete(df2: pd.DataFrame):
     )
     consolidado["Percentual"] = (consolidado["Valor Saldo"] / total_tvm) * 100
 
-    return total_tvm, df_class, df_nao_class, consolidado, None
+    return total_tvm, df_class, df_nao_class, consolidado, df_totais_removidas, None
 
 if uploaded_files2:
-
     resumo_consolidado = []
 
     for f in uploaded_files2:
         df2 = pd.read_excel(f)
-        total_tvm, df_class, df_nao_class, consolidado, err = processar_balancete(df2)
+        total_tvm, df_class, df_nao_class, consolidado, df_totais_removidas, err = processar_balancete(df2)
 
         if err:
             st.error(f"[{f.name}] {err}")
@@ -289,10 +322,9 @@ if uploaded_files2:
 
         with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
 
-            st.subheader("Resumo Executivo (somando apenas contas folha)")
+            st.subheader("Resumo Executivo (com remoção automática de totalizadoras)")
 
             cols = st.columns(max(1, len(consolidado)))
-
             for i in range(len(consolidado)):
                 categoria = consolidado.iloc[i]["Categoria"]
                 valor_categoria = float(consolidado.iloc[i]["Valor Saldo"])
@@ -303,22 +335,17 @@ if uploaded_files2:
                     with st.expander("Ver composição"):
                         df_cat = df_class[df_class["Categoria"] == categoria].copy()
                         soma_check = float(df_cat["Valor Saldo"].sum())
-                        st.write("Soma das contas (folhas):", formatar_moeda(soma_check))
+                        st.write("Soma das contas (sem totalizadoras):", formatar_moeda(soma_check))
 
                         df_show = df_cat.sort_values("Valor Saldo", ascending=False).copy()
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
-
-                        st.dataframe(
-                            df_show[["Conta", "Descrição da Conta", "Valor Saldo"]],
-                            use_container_width=True
-                        )
+                        st.dataframe(df_show[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
             st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
             st.divider()
 
             # Gráficos
             col1, col2 = st.columns([1, 1.2])
-
             with col1:
                 fig1, ax1 = plt.subplots(figsize=(3, 3))
                 ax1.pie(
@@ -331,24 +358,32 @@ if uploaded_files2:
             with col2:
                 fig2, ax2 = plt.subplots(figsize=(6, 3))
                 ax2.barh(consolidado["Categoria"], consolidado["Percentual"])
-                ax2.xaxis.set_major_formatter(
-                    plt.FuncFormatter(lambda x, _: f"{x:.1f}%")
-                )
+                ax2.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.1f}%"))
                 st.pyplot(fig2)
 
             st.divider()
 
+            # Transparência: totalizadoras removidas
+            if df_totais_removidas is not None and not df_totais_removidas.empty:
+                st.info("Contas totalizadoras removidas para evitar dupla contagem:")
+                df_tr = df_totais_removidas.sort_values("Valor Saldo", ascending=False).copy()
+                df_tr["Valor Saldo"] = df_tr["Valor Saldo"].apply(formatar_moeda)
+                st.dataframe(df_tr[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
+
+            # Alertas: não classificados
             if not df_nao_class.empty:
-                st.warning("Contas folha não classificadas (revisar termos extras ou exclusões):")
+                st.warning("Contas não classificadas (após remoção de totalizadoras):")
                 df_nc = df_nao_class.sort_values("Valor Saldo", ascending=False).copy()
                 df_nc["Valor Saldo"] = df_nc["Valor Saldo"].apply(formatar_moeda)
                 st.dataframe(df_nc[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            st.subheader("Contas folha consideradas na análise")
+            # Tabela final
+            st.subheader("Contas consideradas na análise (sem totalizadoras)")
             df_final = df_class.copy()
             df_final["Valor Saldo"] = df_final["Valor Saldo"].apply(formatar_moeda)
             st.dataframe(df_final, use_container_width=True)
 
+        # resumo consolidado geral
         row = {"Arquivo": f.name, "Total TVM": total_tvm}
         for _, r in consolidado.iterrows():
             row[r["Categoria"]] = float(r["Valor Saldo"])
