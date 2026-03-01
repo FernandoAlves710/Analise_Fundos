@@ -139,7 +139,6 @@ TOL_ABS = st.sidebar.number_input(
 BASE_DERIVATIVOS = ["FUTURO", "OPÇÃO", "SWAP", "DERIVAT"]
 BASE_PUBLICOS = ["TESOURO", "LFT", "LTN", "NTN"]
 
-# ✅ FIX 2: incluir CERTIFICADOS DE DEPÓSITO BANCÁRIO (com/sem acento) como privado
 BASE_PRIVADOS = [
     "DEBÊNTURE", "CDB", "CRI", "CRA",
     "FUNDO", "AÇÃO", "BDR",
@@ -151,7 +150,6 @@ BASE_PRIVADOS = [
     "DEPOSITO BANCARIO"
 ]
 
-# ✅ Ambíguos: caso de garantias/margem/bolsa etc.
 AMBIGUOS = [
     "GARANTIA", "DADOS EM GARANTIA", "EM GARANTIA",
     "MARGEM", "BOLSA", "OPERAÇÕES EM BOLSA", "OPERACOES EM BOLSA",
@@ -187,13 +185,14 @@ def aplicar_exclusoes(df: pd.DataFrame) -> pd.DataFrame:
     return df[mask].copy()
 
 # =========================================================
-# COLAPSO HÍBRIDO DE TOTALIZADORAS (COM FIX PARA AMBÍGUAS)
+# COLAPSO HÍBRIDO DE TOTALIZADORAS
+# ✅ AJUSTE FINAL: ambíguas SEMPRE removidas (mesmo "sozinhas")
 # =========================================================
 
 def chave_grupo_cosif(conta: str) -> str:
     c = str(conta).strip()
     if len(c) >= 6:
-        return c[:-3]      # 13115009 -> 13115 | 13610009 -> 13610
+        return c[:-3]
     return c[:-1] if len(c) > 1 else c
 
 def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -201,8 +200,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     - Se encontrar totalizador por soma:
         * se descrição conclusiva: mantém total, remove filhas
         * se ambígua: remove total, mantém filhas
-    - ✅ FIX 1: Mesmo SEM identificar por soma, se houver uma conta ambígua
-      e existirem outras no grupo, remove a ambígua (evita dupla contagem em garantia).
+    - Ambíguas SEMPRE removidas (mesmo se não identificar por soma / grupo "isolado")
     """
     work = df.copy()
     work["Conta"] = work["Conta"].astype(str).str.strip()
@@ -213,13 +211,37 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     out_rows = []
 
     for grupo, g in work.groupby("Grupo", dropna=False):
+        # ✅ AJUSTE FINAL:
+        # se dentro do grupo existir conta(s) ambígua(s), removemos elas sempre,
+        # porque são containers (ex.: 13610009) e queremos usar as aberturas.
+        amb_mask = g["Descrição da Conta"].apply(eh_ambigua)
+        if amb_mask.any():
+            g_amb = g[amb_mask].copy()
+            g_rest = g[~amb_mask].copy()
+
+            for _, row in g_amb.iterrows():
+                logs.append({
+                    "Grupo": grupo,
+                    "Conta": row["Conta"],
+                    "Descrição": row["Descrição da Conta"],
+                    "Valor": float(row["Valor Saldo"]),
+                    "Regra": "Ambígua",
+                    "Decisão": "REMOVIDA (sempre usar aberturas)"
+                })
+
+            # se sobrar algo, segue; se não sobrar, o grupo some (ok)
+            g = g_rest
+
+            if g.empty:
+                continue
+
         if len(g) == 1:
             out_rows.append(g)
             continue
 
         total_grupo = float(g["Valor Saldo"].sum())
 
-        # 1) tenta achar totalizador por soma
+        # tenta achar totalizador por soma
         totalizador_idx = None
         for idx, row in g.iterrows():
             v = float(row["Valor Saldo"])
@@ -228,59 +250,36 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
                 totalizador_idx = idx
                 break
 
-        if totalizador_idx is not None:
-            totalizador = g.loc[totalizador_idx]
-            desc_total = str(totalizador["Descrição da Conta"])
-            cat_total = classificar(desc_total)
-            amb = eh_ambigua(desc_total) or (cat_total is None)
-
-            filhos = g.drop(index=totalizador_idx)
-
-            if amb:
-                logs.append({
-                    "Grupo": grupo,
-                    "Conta": totalizador["Conta"],
-                    "Descrição": totalizador["Descrição da Conta"],
-                    "Valor": float(totalizador["Valor Saldo"]),
-                    "Regra": "Totalizador por soma",
-                    "Decisão": "REMOVIDA (ambígua → usar filhas)"
-                })
-                out_rows.append(filhos)
-            else:
-                logs.append({
-                    "Grupo": grupo,
-                    "Conta": totalizador["Conta"],
-                    "Descrição": totalizador["Descrição da Conta"],
-                    "Valor": float(totalizador["Valor Saldo"]),
-                    "Regra": "Totalizador por soma",
-                    "Decisão": f"MANTIDA ({cat_total} → ignorar filhas)"
-                })
-                out_rows.append(pd.DataFrame([totalizador]))
+        if totalizador_idx is None:
+            out_rows.append(g)
             continue
 
-        # 2) ✅ FIX 1: fallback: se existe conta ambígua e há outras no grupo -> remove a(s) ambígua(s)
-        # (ex.: 13610009 em garantia)
-        amb_mask = g["Descrição da Conta"].apply(eh_ambigua)
-        if amb_mask.any():
-            g_amb = g[amb_mask].copy()
-            g_outros = g[~amb_mask].copy()
+        totalizador = g.loc[totalizador_idx]
+        desc_total = str(totalizador["Descrição da Conta"])
+        cat_total = classificar(desc_total)
+        filhos = g.drop(index=totalizador_idx)
 
-            # remove apenas se realmente há “filhas/outros” no grupo
-            if not g_outros.empty:
-                for _, row in g_amb.iterrows():
-                    logs.append({
-                        "Grupo": grupo,
-                        "Conta": row["Conta"],
-                        "Descrição": row["Descrição da Conta"],
-                        "Valor": float(row["Valor Saldo"]),
-                        "Regra": "Ambígua com subcontas no grupo",
-                        "Decisão": "REMOVIDA (forçar uso das aberturas)"
-                    })
-                out_rows.append(g_outros)
-                continue
-
-        # 3) se não tem totalizador e não aplicou fallback, mantém tudo
-        out_rows.append(g)
+        # se for conclusivo, mantém total; se não, mantém filhos
+        if cat_total is not None:
+            logs.append({
+                "Grupo": grupo,
+                "Conta": totalizador["Conta"],
+                "Descrição": totalizador["Descrição da Conta"],
+                "Valor": float(totalizador["Valor Saldo"]),
+                "Regra": "Totalizador por soma",
+                "Decisão": f"MANTIDA ({cat_total} → ignorar filhas)"
+            })
+            out_rows.append(pd.DataFrame([totalizador]))
+        else:
+            logs.append({
+                "Grupo": grupo,
+                "Conta": totalizador["Conta"],
+                "Descrição": totalizador["Descrição da Conta"],
+                "Valor": float(totalizador["Valor Saldo"]),
+                "Regra": "Totalizador por soma",
+                "Decisão": "REMOVIDA (inconclusiva → usar filhas)"
+            })
+            out_rows.append(filhos)
 
     df_out = pd.concat(out_rows, ignore_index=True) if out_rows else work.iloc[0:0].copy()
     df_out = df_out.drop(columns=["Grupo"], errors="ignore")
@@ -389,7 +388,7 @@ if uploaded_files2:
             continue
 
         with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
-            st.subheader("Resumo Executivo (híbrido + garantia sempre abre)")
+            st.subheader("Resumo Executivo (ambíguas sempre abertas)")
 
             cols = st.columns(max(1, len(consolidado)))
             for i in range(len(consolidado)):
@@ -430,7 +429,7 @@ if uploaded_files2:
             st.divider()
 
             if df_log is not None and not df_log.empty:
-                with st.expander("Log (totalizadoras/ambíguas removidas)"):
+                with st.expander("Log (removidas por ambiguidade / totalização)"):
                     df_log_show = df_log.copy()
                     df_log_show["Valor"] = df_log_show["Valor"].apply(formatar_moeda)
                     st.dataframe(df_log_show, use_container_width=True)
