@@ -1,11 +1,14 @@
+# =========================================================
+# IMPORTS (TEM QUE SER O PRIMEIRO BLOCO DO ARQUIVO)
+# =========================================================
+import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
 
 # =========================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO (PRIMEIRA CHAMADA STREAMLIT DO ARQUIVO)
 # =========================================================
-
 st.set_page_config(
     page_title="Análise Profissional de Fundos",
     layout="wide"
@@ -55,7 +58,7 @@ def text_to_list(txt):
     return [t.strip().upper() for t in txt.split("\n") if t.strip()]
 
 # =========================================================
-# SIDEBAR – TERMOS EXTRAS + EXCLUSÕES (fallback)
+# SIDEBAR – TERMOS EXTRAS + EXCLUSÕES + TOLERÂNCIA
 # =========================================================
 
 st.sidebar.header("Configurações (Parte 2)")
@@ -70,7 +73,7 @@ if "termos_extras" not in st.session_state:
 st.sidebar.subheader("Termos extras (opcional)")
 st.sidebar.caption(
     "Adiciona termos às regras base (sem alterar o baseline). "
-    "Se deixar em branco, fica igual ao seu classificador original."
+    "Se deixar em branco, fica igual ao classificador original."
 )
 
 json_upload = st.sidebar.file_uploader("Importar termos extras (JSON)", type=["json"])
@@ -122,16 +125,15 @@ exclusoes_texto = st.sidebar.text_area(
 )
 PREFIXOS_EXCLUIR = [p.strip() for p in exclusoes_texto.split("\n") if p.strip()]
 
-# tolerância para identificar totalizadoras por soma (diferença máxima em reais)
 TOL_ABS = st.sidebar.number_input(
-    "Tolerância p/ totalizadoras (R$)",
+    "Tolerância p/ identificar totalizadoras (R$)",
     min_value=0.0,
     value=1.0,
     step=0.5
 )
 
 # =========================================================
-# REGRAS BASE (baseline que “batia” antes)
+# REGRAS BASE + AMBIGUIDADE
 # =========================================================
 
 BASE_DERIVATIVOS = ["FUTURO", "OPÇÃO", "SWAP", "DERIVAT"]
@@ -143,11 +145,10 @@ BASE_PRIVADOS = [
     "RENDA VARIAVEL", "RENDA VARIÁVEL"
 ]
 
-# termos que indicam que a conta é “container”/inconclusiva
 AMBIGUOS = [
     "GARANTIA", "DADOS EM GARANTIA", "EM GARANTIA",
     "MARGEM", "BOLSA", "OPERAÇÕES EM BOLSA", "OPERACOES EM BOLSA",
-    "VINCUL", "BLOQUEAD", "CUSTOD", "DEPÓSITO EM GARANTIA", "DEPOSITO EM GARANTIA",
+    "VINCUL", "BLOQUEAD", "CUSTOD", "DEPOSITO EM GARANTIA",
     "COLATERAL"
 ]
 
@@ -158,7 +159,6 @@ def classificar(descricao: str) -> str | None:
     pub = BASE_PUBLICOS + st.session_state.termos_extras["Títulos Públicos"]
     priv = BASE_PRIVADOS + st.session_state.termos_extras["Títulos Privados"]
 
-    # mesma precedência do baseline
     if any(p in desc for p in der):
         return "Derivativos"
     if any(p in desc for p in pub):
@@ -181,37 +181,21 @@ def aplicar_exclusoes(df: pd.DataFrame) -> pd.DataFrame:
 
 # =========================================================
 # COLAPSO HÍBRIDO DE TOTALIZADORAS
-# - se totalizadora for "conclusiva": mantém ela e remove filhas
-# - se for "ambígua": remove ela e mantém filhas
 # =========================================================
 
 def chave_grupo_cosif(conta: str) -> str:
-    """
-    Heurística: agrupa por 'família' COSIF.
-    Para seus exemplos, funciona bem agrupar removendo os 3 últimos dígitos:
-    13115009 -> 13115
-    13115353 -> 13115
-    13610009 -> 13610
-    """
     c = str(conta).strip()
     if len(c) >= 6:
-        return c[:-3]
+        return c[:-3]      # 13115009 -> 13115
     return c[:-1] if len(c) > 1 else c
 
 def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Retorna:
-      - df_resultado: sem dupla contagem (aplicando regra híbrida)
-      - df_log: totalizadoras identificadas + decisão (mantida/removida)
-    """
     work = df.copy()
     work["Conta"] = work["Conta"].astype(str).str.strip()
     work["Valor Saldo"] = pd.to_numeric(work["Valor Saldo"], errors="coerce").fillna(0.0)
     work["Grupo"] = work["Conta"].apply(chave_grupo_cosif)
 
     logs = []
-
-    # processa por grupo
     out_rows = []
 
     for grupo, g in work.groupby("Grupo", dropna=False):
@@ -221,7 +205,6 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
 
         total_grupo = float(g["Valor Saldo"].sum())
 
-        # procura um candidato totalizador: valor ≈ soma_outros
         totalizador_idx = None
         for idx, row in g.iterrows():
             v = float(row["Valor Saldo"])
@@ -241,9 +224,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
 
         filhos = g.drop(index=totalizador_idx)
 
-        # decisão
         if amb:
-            # total ambíguo: remove total e mantém filhos
             logs.append({
                 "Grupo": grupo,
                 "Conta Total": totalizador["Conta"],
@@ -253,7 +234,6 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
             })
             out_rows.append(filhos)
         else:
-            # total conclusivo: mantém total e remove filhos
             logs.append({
                 "Grupo": grupo,
                 "Conta Total": totalizador["Conta"],
@@ -333,20 +313,16 @@ def processar_balancete(df2: pd.DataFrame):
 
     total_tvm = float(total_row["Valor Saldo"].iloc[0])
 
-    # universo: 13 (exceto total) e !=0
     df_tvm = df2[
         (df2["Conta"].str.startswith("13")) &
         (df2["Conta"] != "13000004") &
         (df2["Valor Saldo"] != 0)
     ].copy()
 
-    # exclusões opcionais
     df_tvm = aplicar_exclusoes(df_tvm)
 
-    # aplica colapso híbrido
     df_sem_dupla, df_log = colapsar_totalizadoras_hibrido(df_tvm, tol_abs=TOL_ABS)
 
-    # classifica
     df_sem_dupla["Categoria"] = df_sem_dupla["Descrição da Conta"].apply(classificar)
 
     df_class = df_sem_dupla[df_sem_dupla["Categoria"].notna()].copy()
@@ -374,8 +350,7 @@ if uploaded_files2:
             continue
 
         with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
-
-            st.subheader("Resumo Executivo (híbrido: mantém total conclusivo / abre ambíguo)")
+            st.subheader("Resumo Executivo (híbrido)")
 
             cols = st.columns(max(1, len(consolidado)))
             for i in range(len(consolidado)):
@@ -392,12 +367,12 @@ if uploaded_files2:
 
                         df_show = df_cat.sort_values("Valor Saldo", ascending=False).copy()
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
+
                         st.dataframe(df_show[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
             st.metric("Total TVM (100%)", formatar_moeda(total_tvm))
             st.divider()
 
-            # Gráficos
             col1, col2 = st.columns([1, 1.2])
             with col1:
                 fig1, ax1 = plt.subplots(figsize=(3, 3))
@@ -416,14 +391,12 @@ if uploaded_files2:
 
             st.divider()
 
-            # log das totalizadoras
             if df_log is not None and not df_log.empty:
                 with st.expander("Log de totalizadoras (decisão híbrida)"):
                     df_log_show = df_log.copy()
                     df_log_show["Valor Total"] = df_log_show["Valor Total"].apply(formatar_moeda)
                     st.dataframe(df_log_show, use_container_width=True)
 
-            # Alertas: não classificados
             if not df_nao_class.empty:
                 st.warning("Contas não classificadas (após colapso híbrido):")
                 df_nc = df_nao_class.sort_values("Valor Saldo", ascending=False).copy()
@@ -435,7 +408,6 @@ if uploaded_files2:
             df_final["Valor Saldo"] = df_final["Valor Saldo"].apply(formatar_moeda)
             st.dataframe(df_final, use_container_width=True)
 
-        # resumo consolidado geral
         row = {"Arquivo": f.name, "Total TVM": total_tvm}
         for _, r in consolidado.iterrows():
             row[r["Categoria"]] = float(r["Valor Saldo"])
