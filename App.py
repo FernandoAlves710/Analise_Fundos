@@ -79,7 +79,7 @@ if uploaded_file1:
 # PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM = 100%)
 # =========================================================
 
-st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
+st.header("2. Exposição da Carteira")
 
 uploaded_file2 = st.file_uploader(
     "Envie a planilha de Balancete (.xlsx)",
