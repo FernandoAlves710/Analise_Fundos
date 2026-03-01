@@ -343,7 +343,7 @@ with col1:
 with col2:
     card("Patrimônio Final", formatar_moeda(patrimonio_final))
 
- with col3:
+with col3:
     card("Captação Líquida", formatar_moeda(captacoes_liquidas))
 
 with col4:
