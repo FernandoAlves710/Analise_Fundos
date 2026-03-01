@@ -322,21 +322,32 @@ if uploaded_file1:
 
     col1, col2, col3, col4 = st.columns(4)
 
+    col1, col2, col3, col4 = st.columns(4)
+
+def card(titulo, valor):
+    st.markdown(
+        f"""
+        <div style="padding:10px 0px;">
+            <div style="font-size:14px; color:gray;">{titulo}</div>
+            <div style="font-size:22px; font-weight:600;">
+                {valor}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     with col1:
-     st.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
-     st.write(f"{cotistas_finais:,}".replace(",", "."))
+    card("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
 
     with col2:
-     st.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
-     st.write(formatar_moeda(patrimonio_final))
+    card("Patrimônio Final", formatar_moeda(patrimonio_final))
 
     with col3:
-     st.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
-     st.write(formatar_moeda(captacoes_liquidas))
+    card("Captação Líquida", formatar_moeda(captacoes_liquidas))
 
     with col4:
-     st.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
-     st.write(formatar_moeda(variacao_patrimonio))
+    card("Variação do PL", formatar_moeda(variacao_patrimonio))
 
 # =========================================================
 # PARTE 2 – MULTI-UPLOAD + REGRA HÍBRIDA
