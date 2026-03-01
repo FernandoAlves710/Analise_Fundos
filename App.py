@@ -321,11 +321,22 @@ if uploaded_file1:
     captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
-    col2.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
-    col3.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
-    col4.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
-    st.divider()
+
+with col1:
+    st.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
+    st.write(f"{cotistas_finais:,}".replace(",", "."))
+
+with col2:
+    st.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
+    st.write(formatar_moeda(patrimonio_final))
+
+with col3:
+    st.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
+    st.write(formatar_moeda(captacoes_liquidas))
+
+with col4:
+    st.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
+    st.write(formatar_moeda(variacao_patrimonio))
 
 # =========================================================
 # PARTE 2 – MULTI-UPLOAD + REGRA HÍBRIDA
