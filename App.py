@@ -186,7 +186,7 @@ def aplicar_exclusoes(df: pd.DataFrame) -> pd.DataFrame:
 
 # =========================================================
 # COLAPSO HÍBRIDO DE TOTALIZADORAS
-# ✅ AJUSTE FINAL: ambíguas SEMPRE removidas (mesmo "sozinhas")
+# (ambíguas sempre removidas)
 # =========================================================
 
 def chave_grupo_cosif(conta: str) -> str:
@@ -196,12 +196,6 @@ def chave_grupo_cosif(conta: str) -> str:
     return c[:-1] if len(c) > 1 else c
 
 def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    - Se encontrar totalizador por soma:
-        * se descrição conclusiva: mantém total, remove filhas
-        * se ambígua: remove total, mantém filhas
-    - Ambíguas SEMPRE removidas (mesmo se não identificar por soma / grupo "isolado")
-    """
     work = df.copy()
     work["Conta"] = work["Conta"].astype(str).str.strip()
     work["Valor Saldo"] = pd.to_numeric(work["Valor Saldo"], errors="coerce").fillna(0.0)
@@ -211,9 +205,8 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     out_rows = []
 
     for grupo, g in work.groupby("Grupo", dropna=False):
-        # ✅ AJUSTE FINAL:
-        # se dentro do grupo existir conta(s) ambígua(s), removemos elas sempre,
-        # porque são containers (ex.: 13610009) e queremos usar as aberturas.
+
+        # Ambíguas sempre removidas
         amb_mask = g["Descrição da Conta"].apply(eh_ambigua)
         if amb_mask.any():
             g_amb = g[amb_mask].copy()
@@ -229,9 +222,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
                     "Decisão": "REMOVIDA (sempre usar aberturas)"
                 })
 
-            # se sobrar algo, segue; se não sobrar, o grupo some (ok)
             g = g_rest
-
             if g.empty:
                 continue
 
@@ -241,7 +232,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
 
         total_grupo = float(g["Valor Saldo"].sum())
 
-        # tenta achar totalizador por soma
+        # identifica totalizador por soma
         totalizador_idx = None
         for idx, row in g.iterrows():
             v = float(row["Valor Saldo"])
@@ -257,9 +248,9 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
         totalizador = g.loc[totalizador_idx]
         desc_total = str(totalizador["Descrição da Conta"])
         cat_total = classificar(desc_total)
+
         filhos = g.drop(index=totalizador_idx)
 
-        # se for conclusivo, mantém total; se não, mantém filhos
         if cat_total is not None:
             logs.append({
                 "Grupo": grupo,
@@ -288,7 +279,8 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     return df_out, df_log
 
 # =========================================================
-# PARTE 1 – COTISTAS & PATRIMÔNIO (INTACTO)
+# PARTE 1 – COTISTAS & PATRIMÔNIO LÍQUIDO
+# (AJUSTE: cards sem truncar números)
 # =========================================================
 
 st.header("1. Cotistas e Patrimônio Líquido")
@@ -320,37 +312,37 @@ if uploaded_file1:
     cotistas_finais = int(df1["cotistas"].iloc[0])
     captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-def card(titulo, valor):
-    st.markdown(
-        f"""
-        <div style="padding:10px 0px;">
-            <div style="font-size:14px; color:gray;">{titulo}</div>
-            <div style="font-size:22px; font-weight:600;">
-                {valor}
+    def card(titulo, valor):
+        st.markdown(
+            f"""
+            <div style="padding:10px 0px;">
+                <div style="font-size:14px; color:gray;">{titulo}</div>
+                <div style="font-size:22px; font-weight:600;">
+                    {valor}
+                </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            """,
+            unsafe_allow_html=True
+        )
 
-with col1:
-    card("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
+    col1, col2, col3, col4 = st.columns(4)
 
-with col2:
-    card("Patrimônio Final", formatar_moeda(patrimonio_final))
+    with col1:
+        card("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
 
-with col3:
-    card("Captação Líquida", formatar_moeda(captacoes_liquidas))
+    with col2:
+        card("Patrimônio Final", formatar_moeda(patrimonio_final))
 
-with col4:
-    card("Variação do PL", formatar_moeda(variacao_patrimonio))
+    with col3:
+        card("Captação Líquida", formatar_moeda(captacoes_liquidas))
+
+    with col4:
+        card("Variação do PL", formatar_moeda(variacao_patrimonio))
+
+    st.divider()
 
 # =========================================================
-# PARTE 2 – MULTI-UPLOAD + REGRA HÍBRIDA
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM = 100%) + MULTI-UPLOAD
 # =========================================================
 
 st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
