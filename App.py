@@ -96,7 +96,6 @@ if "termos_extras" not in st.session_state:
         "Títulos Privados": []
     }
 
-# Botão de download da configuração oficial
 st.sidebar.download_button(
     "Baixar configuração padrão do banco",
     data=exportar_json_termos(CONFIG_PADRAO_BANCO),
@@ -448,7 +447,7 @@ if uploaded_files2:
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
                         st.dataframe(df_show[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            # Total + Pizza ao lado
+            # Total + Pizza ao lado (PIZZA METADE DO TAMANHO ANTERIOR)
             st.divider()
             col_total, col_pizza = st.columns([1, 1])
 
@@ -456,12 +455,13 @@ if uploaded_files2:
                 st.metric("Total TVM", formatar_moeda(total_tvm))
 
             with col_pizza:
-                fig1, ax1 = plt.subplots(figsize=(3.2, 3.2))
+                # antes estava (3.2, 3.2); agora ~metade
+                fig1, ax1 = plt.subplots(figsize=(1.6, 1.6))
                 ax1.pie(
                     consolidado["Percentual"],
                     labels=consolidado["Categoria"],
                     autopct='%1.1f%%',
-                    textprops={'fontsize': 8}
+                    textprops={'fontsize': 6}
                 )
                 st.pyplot(fig1)
 
@@ -506,4 +506,4 @@ if uploaded_files2:
         st.dataframe(df_resumo, use_container_width=True)
 
 else:
-    st.info("Envie um ou mais balancetes para iniciar a análise.")
+    st.info("Envie uma ou mais planilhas de balancete para iniciar a análise.")
