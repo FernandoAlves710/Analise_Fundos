@@ -38,7 +38,6 @@ def carregar_json_termos(uploaded):
         data = json.loads(uploaded.read().decode("utf-8"))
         if not isinstance(data, dict):
             return None, "JSON inválido (esperado objeto/dict)."
-        # garante chaves
         for k in ["Derivativos", "Títulos Públicos", "Títulos Privados"]:
             data.setdefault(k, [])
             if not isinstance(data[k], list):
@@ -50,15 +49,36 @@ def carregar_json_termos(uploaded):
 def exportar_json_termos(termos_extras: dict) -> bytes:
     return json.dumps(termos_extras, ensure_ascii=False, indent=2).encode("utf-8")
 
+def list_to_text(lst):
+    return "\n".join(lst) if lst else ""
+
+def text_to_list(txt):
+    return [t.strip().upper() for t in txt.split("\n") if t.strip()]
+
+def identificar_folhas_por_prefixo(df_contas: pd.DataFrame, col_conta: str = "Conta") -> pd.DataFrame:
+    """
+    Marca e retorna apenas contas folha:
+    uma conta é totalizadora se existir alguma outra conta que começa com ela e é diferente.
+    """
+    contas = df_contas[col_conta].astype(str).tolist()
+    contas_set = set(contas)
+
+    def eh_folha(c):
+        # se existir "outra" que tenha prefixo = c, então c é pai (não folha)
+        for outra in contas_set:
+            if outra != c and outra.startswith(c):
+                return False
+        return True
+
+    df = df_contas.copy()
+    df["Folha"] = df[col_conta].apply(eh_folha)
+    return df[df["Folha"]].copy()
+
 # =========================================================
-# SIDEBAR – TERMOS EXTRAS (NÃO ALTERA A BASE)
+# SIDEBAR – TERMOS EXTRAS + EXCLUSÕES
 # =========================================================
 
-st.sidebar.header("Classificação – Termos extras (opcional)")
-st.sidebar.caption(
-    "Esses termos são ADICIONADOS às regras base (que já estavam corretas). "
-    "Se não preencher nada, o resultado fica igual ao seu código original."
-)
+st.sidebar.header("Configurações (Parte 2)")
 
 if "termos_extras" not in st.session_state:
     st.session_state.termos_extras = {
@@ -67,7 +87,9 @@ if "termos_extras" not in st.session_state:
         "Títulos Privados": []
     }
 
-# Importar JSON
+st.sidebar.subheader("Termos extras (opcional)")
+st.sidebar.caption("Adiciona termos às regras base, sem alterar o que já funciona.")
+
 json_upload = st.sidebar.file_uploader("Importar termos extras (JSON)", type=["json"])
 if json_upload is not None:
     data, err = carregar_json_termos(json_upload)
@@ -77,29 +99,22 @@ if json_upload is not None:
         st.session_state.termos_extras = data
         st.sidebar.success("Termos extras importados.")
 
-# Editar termos extras via text area (um por linha)
-def list_to_text(lst):
-    return "\n".join(lst) if lst else ""
-
-def text_to_list(txt):
-    return [t.strip().upper() for t in txt.split("\n") if t.strip()]
-
 txt_der = st.sidebar.text_area(
     "Derivativos – termos extras (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Derivativos"]),
-    height=120
+    height=110
 )
 
 txt_pub = st.sidebar.text_area(
     "Títulos Públicos – termos extras (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Públicos"]),
-    height=120
+    height=110
 )
 
 txt_priv = st.sidebar.text_area(
     "Títulos Privados – termos extras (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Privados"]),
-    height=140
+    height=130
 )
 
 if st.sidebar.button("Aplicar termos extras"):
@@ -108,7 +123,6 @@ if st.sidebar.button("Aplicar termos extras"):
     st.session_state.termos_extras["Títulos Privados"] = text_to_list(txt_priv)
     st.sidebar.success("Termos extras aplicados.")
 
-# Exportar JSON
 st.sidebar.download_button(
     "Exportar termos extras (JSON)",
     data=exportar_json_termos(st.session_state.termos_extras),
@@ -117,9 +131,21 @@ st.sidebar.download_button(
 )
 
 st.sidebar.divider()
+st.sidebar.subheader("Exclusões (opcional)")
+st.sidebar.caption(
+    "Use para excluir contas (ou subárvores) pelo prefixo do código. "
+    "Ex.: '1361' excluiria 13610009 e seus filhos."
+)
+
+exclusoes_texto = st.sidebar.text_area(
+    "Prefixos para excluir (1 por linha)",
+    value="",
+    height=110
+)
+PREFIXOS_EXCLUIR = [p.strip() for p in exclusoes_texto.split("\n") if p.strip()]
 
 # =========================================================
-# REGRAS BASE (AS DO SEU CÓDIGO QUE ESTAVAM CORRETAS)
+# REGRAS BASE (AS DO SEU CÓDIGO)
 # =========================================================
 
 BASE_DERIVATIVOS = ["FUTURO", "OPÇÃO", "SWAP", "DERIVAT"]
@@ -130,10 +156,6 @@ BASE_PRIVADOS = [
     "LCI", "LCA"
 ]
 
-# =========================================================
-# FUNÇÃO DE CLASSIFICAÇÃO (BASE + EXTRAS, SEM MUDAR A LÓGICA)
-# =========================================================
-
 def classificar(descricao: str) -> str | None:
     desc = (descricao or "").upper()
 
@@ -141,8 +163,6 @@ def classificar(descricao: str) -> str | None:
     pub = BASE_PUBLICOS + st.session_state.termos_extras["Títulos Públicos"]
     priv = BASE_PRIVADOS + st.session_state.termos_extras["Títulos Privados"]
 
-    # mantém a mesma precedência do seu código original:
-    # Derivativos -> Públicos -> Privados -> None
     if any(p in desc for p in der):
         return "Derivativos"
     if any(p in desc for p in pub):
@@ -150,6 +170,14 @@ def classificar(descricao: str) -> str | None:
     if any(p in desc for p in priv):
         return "Títulos Privados"
     return None
+
+def aplicar_exclusoes(df: pd.DataFrame) -> pd.DataFrame:
+    if not PREFIXOS_EXCLUIR:
+        return df
+    mask = pd.Series([True] * len(df), index=df.index)
+    for pref in PREFIXOS_EXCLUIR:
+        mask &= ~df["Conta"].astype(str).str.startswith(pref)
+    return df[mask].copy()
 
 # =========================================================
 # PARTE 1 – COTISTAS & PATRIMÔNIO LÍQUIDO (NÃO MEXER)
@@ -195,7 +223,7 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA (MULTI-UPLOAD)
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA (MULTI-UPLOAD + FOLHAS)
 # =========================================================
 
 st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
@@ -218,16 +246,24 @@ def processar_balancete(df2: pd.DataFrame):
 
     total_tvm = float(total_row["Valor Saldo"].iloc[0])
 
+    # universo: grupo 13 (exceto total)
     df_tvm = df2[
         (df2["Conta"].str.startswith("13")) &
         (df2["Conta"] != "13000004") &
         (df2["Valor Saldo"] != 0)
     ].copy()
 
-    df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
+    # aplica exclusões opcionais
+    df_tvm = aplicar_exclusoes(df_tvm)
 
-    df_class = df_tvm[df_tvm["Categoria"].notna()].copy()
-    df_nao_class = df_tvm[df_tvm["Categoria"].isna()].copy()
+    # >>> ponto CRUCIAL: remover totalizadores e manter apenas folhas <<<
+    df_folhas = identificar_folhas_por_prefixo(df_tvm, col_conta="Conta")
+
+    # classifica apenas as folhas (evita dupla contagem)
+    df_folhas["Categoria"] = df_folhas["Descrição da Conta"].apply(classificar)
+
+    df_class = df_folhas[df_folhas["Categoria"].notna()].copy()
+    df_nao_class = df_folhas[df_folhas["Categoria"].isna()].copy()
 
     consolidado = (
         df_class.groupby("Categoria")["Valor Saldo"]
@@ -235,7 +271,6 @@ def processar_balancete(df2: pd.DataFrame):
         .reset_index()
         .sort_values("Valor Saldo", ascending=False)
     )
-
     consolidado["Percentual"] = (consolidado["Valor Saldo"] / total_tvm) * 100
 
     return total_tvm, df_class, df_nao_class, consolidado, None
@@ -246,17 +281,15 @@ if uploaded_files2:
 
     for f in uploaded_files2:
         df2 = pd.read_excel(f)
-
         total_tvm, df_class, df_nao_class, consolidado, err = processar_balancete(df2)
 
         if err:
             st.error(f"[{f.name}] {err}")
             continue
 
-        # ====== Bloco por arquivo
         with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
 
-            st.subheader("Resumo Executivo")
+            st.subheader("Resumo Executivo (somando apenas contas folha)")
 
             cols = st.columns(max(1, len(consolidado)))
 
@@ -270,7 +303,7 @@ if uploaded_files2:
                     with st.expander("Ver composição"):
                         df_cat = df_class[df_class["Categoria"] == categoria].copy()
                         soma_check = float(df_cat["Valor Saldo"].sum())
-                        st.write("Soma das contas:", formatar_moeda(soma_check))
+                        st.write("Soma das contas (folhas):", formatar_moeda(soma_check))
 
                         df_show = df_cat.sort_values("Valor Saldo", ascending=False).copy()
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
@@ -305,42 +338,33 @@ if uploaded_files2:
 
             st.divider()
 
-            # Alerta de não classificados
             if not df_nao_class.empty:
-                st.warning("Contas não classificadas (revisar termos extras, se necessário):")
+                st.warning("Contas folha não classificadas (revisar termos extras ou exclusões):")
                 df_nc = df_nao_class.sort_values("Valor Saldo", ascending=False).copy()
                 df_nc["Valor Saldo"] = df_nc["Valor Saldo"].apply(formatar_moeda)
                 st.dataframe(df_nc[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            # Tabela final
-            st.subheader("Contas Consideradas na Análise")
+            st.subheader("Contas folha consideradas na análise")
             df_final = df_class.copy()
             df_final["Valor Saldo"] = df_final["Valor Saldo"].apply(formatar_moeda)
             st.dataframe(df_final, use_container_width=True)
 
-        # ====== Linha do resumo consolidado
-        row = {
-            "Arquivo": f.name,
-            "Total TVM": total_tvm
-        }
+        row = {"Arquivo": f.name, "Total TVM": total_tvm}
         for _, r in consolidado.iterrows():
             row[r["Categoria"]] = float(r["Valor Saldo"])
             row[f"% {r['Categoria']}"] = float(r["Percentual"])
         resumo_consolidado.append(row)
 
-    # ====== Resumo consolidado geral
     if resumo_consolidado:
         st.divider()
         st.header("Resumo Consolidado (todos os balancetes)")
 
         df_resumo = pd.DataFrame(resumo_consolidado).fillna(0)
 
-        # moeda
         for c in ["Total TVM", "Títulos Públicos", "Títulos Privados", "Derivativos"]:
             if c in df_resumo.columns:
                 df_resumo[c] = df_resumo[c].apply(formatar_moeda)
 
-        # percentuais
         for c in [c for c in df_resumo.columns if c.startswith("% ")]:
             df_resumo[c] = df_resumo[c].apply(lambda x: f"{float(x):.2f}%")
 
