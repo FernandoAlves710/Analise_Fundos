@@ -33,29 +33,73 @@ def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA
+# PARTE 1 – COTISTAS & PATRIMÔNIO LÍQUIDO
 # =========================================================
 
-st.header("Exposição Econômica da Carteira (TVM = 100%)")
+st.header("1. Cotistas e Patrimônio Líquido")
 
-uploaded_file = st.file_uploader(
-    "Envie a planilha de Balancete (.xlsx)",
-    type=["xlsx"]
+uploaded_file1 = st.file_uploader(
+    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx)",
+    type=["xlsx"],
+    key="planilha1"
 )
 
-if uploaded_file:
+if uploaded_file1:
 
-    df = pd.read_excel(uploaded_file)
+    df1 = pd.read_excel(uploaded_file1)
+    df1.columns = df1.columns.str.strip().str.lower()
 
-    df["Conta"] = df["Conta"].astype(str).str.strip()
-    df["Descrição da Conta"] = df["Descrição da Conta"].astype(str).str.upper()
-    df["Valor Saldo"] = df["Valor Saldo"].apply(converter_valor_brasileiro)
+    df1.rename(columns={
+        "patrimônio": "patrimonio",
+        "captação": "captacao",
+        "resgate": "resgate",
+        "cotistas": "cotistas"
+    }, inplace=True)
+
+    for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
+        if col in df1.columns:
+            df1[col] = df1[col].apply(converter_valor_brasileiro)
+
+    patrimonio_final = df1["patrimonio"].iloc[0]
+    patrimonio_inicial = df1["patrimonio"].iloc[-1]
+    variacao_patrimonio = patrimonio_final - patrimonio_inicial
+    cotistas_finais = int(df1["cotistas"].iloc[0])
+    captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
+    col2.metric("Patrimônio Final", formatar_moeda(patrimonio_final))
+    col3.metric("Captação Líquida", formatar_moeda(captacoes_liquidas))
+    col4.metric("Variação do PL", formatar_moeda(variacao_patrimonio))
+
+    st.divider()
+
+# =========================================================
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA (TVM = 100%)
+# =========================================================
+
+st.header("2. Exposição Econômica da Carteira (TVM = 100%)")
+
+uploaded_file2 = st.file_uploader(
+    "Envie a planilha de Balancete (.xlsx)",
+    type=["xlsx"],
+    key="planilha2"
+)
+
+if uploaded_file2:
+
+    df2 = pd.read_excel(uploaded_file2)
+
+    df2["Conta"] = df2["Conta"].astype(str).str.strip()
+    df2["Descrição da Conta"] = df2["Descrição da Conta"].astype(str).str.upper()
+    df2["Valor Saldo"] = df2["Valor Saldo"].apply(converter_valor_brasileiro)
 
     # =====================================================
-    # TOTAL OFICIAL TVM
+    # TOTAL OFICIAL TVM (13000004)
     # =====================================================
 
-    total_row = df[df["Conta"] == "13000004"]
+    total_row = df2[df2["Conta"] == "13000004"]
 
     if total_row.empty:
         st.error("Conta 13000004 não encontrada.")
@@ -64,34 +108,31 @@ if uploaded_file:
     total_tvm = total_row["Valor Saldo"].iloc[0]
 
     # =====================================================
-    # APENAS CONTAS ANALÍTICAS
+    # FILTRAR CONTAS ANALÍTICAS
     # =====================================================
 
-    df_tvm = df[
-        (df["Conta"].str.startswith("13")) &
-        (df["Conta"] != "13000004") &
-        (df["Valor Saldo"] != 0)
+    df_tvm = df2[
+        (df2["Conta"].str.startswith("13")) &
+        (df2["Conta"] != "13000004") &
+        (df2["Valor Saldo"] != 0)
     ].copy()
 
     # =====================================================
-    # CLASSIFICAÇÃO PRECISA
+    # CLASSIFICAÇÃO PRECISA (SEM OUTROS)
     # =====================================================
 
     def classificar(descricao):
 
-        # Derivativos
         if any(p in descricao for p in [
             "FUTURO", "OPÇÃO", "SWAP", "DERIVAT"
         ]):
             return "Derivativos"
 
-        # Títulos Públicos
         if any(p in descricao for p in [
             "TESOURO", "LFT", "LTN", "NTN"
         ]):
             return "Títulos Públicos"
 
-        # Títulos Privados reais
         if any(p in descricao for p in [
             "DEBÊNTURE", "CDB", "CRI", "CRA",
             "FUNDO", "AÇÃO", "BDR",
@@ -99,12 +140,10 @@ if uploaded_file:
         ]):
             return "Títulos Privados"
 
-        # Ignorar o resto
         return None
 
     df_tvm["Categoria"] = df_tvm["Descrição da Conta"].apply(classificar)
 
-    # Mantém apenas categorias válidas
     df_tvm = df_tvm[df_tvm["Categoria"].notna()]
 
     consolidado = (
@@ -119,7 +158,7 @@ if uploaded_file:
     ) * 100
 
     # =====================================================
-    # RESULTADOS
+    # RESUMO
     # =====================================================
 
     st.subheader("Resumo Executivo")
@@ -164,6 +203,12 @@ if uploaded_file:
 
     st.divider()
 
+    # =====================================================
+    # TABELA FINAL
+    # =====================================================
+
     st.subheader("Contas Consideradas na Análise")
+
     df_tvm["Valor Saldo"] = df_tvm["Valor Saldo"].apply(formatar_moeda)
+
     st.dataframe(df_tvm, use_container_width=True)
