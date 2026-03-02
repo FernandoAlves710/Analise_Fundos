@@ -644,7 +644,7 @@ if uploaded_files1 or uploaded_files2:
                 df_cot.to_excel(writer, sheet_name="Resumo_Cotistas", index=False)
 
             if uploaded_files2 and len(resumo_consolidado) > 0:
-    df_bal = pd.DataFrame(resumo_consolidado).copy()
+                df_bal = pd.DataFrame(resumo_consolidado).copy()
 
     # cria somente colunas formatadas (fmt)
     df_out = pd.DataFrame()
