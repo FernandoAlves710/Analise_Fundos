@@ -33,12 +33,14 @@ def converter_valor_brasileiro(valor):
     except:
         return 0.0
 
+
 def formatar_moeda(valor):
     try:
         v = float(valor)
     except:
         v = 0.0
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def carregar_config(uploaded):
     try:
@@ -53,14 +55,18 @@ def carregar_config(uploaded):
     except Exception as e:
         return None, f"Erro ao ler arquivo: {e}"
 
+
 def exportar_config(data: dict) -> bytes:
     return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
 
 def list_to_text(lst):
     return "\n".join(lst) if lst else ""
 
+
 def text_to_list(txt):
     return [t.strip().upper() for t in txt.split("\n") if t.strip()]
+
 
 def excel_bytes_relatorio(
     arquivo_nome: str,
@@ -253,6 +259,7 @@ AMBIGUOS = [
     "COLATERAL"
 ]
 
+
 def classificar(descricao: str):
     desc = (descricao or "").upper()
 
@@ -268,9 +275,11 @@ def classificar(descricao: str):
         return "Títulos Privados"
     return None
 
+
 def eh_ambigua(descricao: str) -> bool:
     desc = (descricao or "").upper()
     return any(p in desc for p in AMBIGUOS)
+
 
 def aplicar_exclusoes_prefixo(df: pd.DataFrame) -> pd.DataFrame:
     if not PREFIXOS_EXCLUIR:
@@ -279,6 +288,7 @@ def aplicar_exclusoes_prefixo(df: pd.DataFrame) -> pd.DataFrame:
     for pref in PREFIXOS_EXCLUIR:
         mask &= ~df["Conta"].astype(str).str.startswith(pref)
     return df[mask].copy()
+
 
 def aplicar_exclusoes_por_categoria(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     if df.empty:
@@ -328,6 +338,7 @@ def chave_grupo_cosif(conta: str) -> str:
     if len(c) >= 6:
         return c[:-3]
     return c[:-1] if len(c) > 1 else c
+
 
 def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd.DataFrame, pd.DataFrame]:
     work = df.copy()
@@ -466,6 +477,9 @@ uploaded_files2 = st.file_uploader(
     accept_multiple_files=True
 )
 
+# 🔥 IMPORTANTE: inicializar antes do if (para não quebrar exportação global)
+resumo_consolidado = []
+
 def processar_balancete(df2: pd.DataFrame):
     df2 = df2.copy()
     df2["Conta"] = df2["Conta"].astype(str).str.strip()
@@ -514,6 +528,7 @@ def processar_balancete(df2: pd.DataFrame):
 
     return total_tvm, df_class, df_nao_class, consolidado, df_log, None
 
+
 if uploaded_files2:
     for idx, f in enumerate(uploaded_files2):
         df2 = pd.read_excel(f)
@@ -523,7 +538,15 @@ if uploaded_files2:
             st.error(f"[{f.name}] {err}")
             continue
 
-        # ✅ expander sem key, mas com label único
+        # ✅ Preenche resumo consolidado para exportação global
+        resumo_consolidado.append({
+            "Arquivo": f.name,
+            "Total TVM": total_tvm,
+            "Derivativos (R$)": float(consolidado.loc[consolidado["Categoria"] == "Derivativos", "Valor Saldo"].sum()) if not consolidado.empty else 0.0,
+            "Títulos Públicos (R$)": float(consolidado.loc[consolidado["Categoria"] == "Títulos Públicos", "Valor Saldo"].sum()) if not consolidado.empty else 0.0,
+            "Títulos Privados (R$)": float(consolidado.loc[consolidado["Categoria"] == "Títulos Privados", "Valor Saldo"].sum()) if not consolidado.empty else 0.0
+        })
+
         with st.expander(f"Balancete #{idx+1} — {f.name}", expanded=(len(uploaded_files2) == 1)):
             st.subheader("Resumo Executivo")
 
@@ -538,7 +561,6 @@ if uploaded_files2:
                 df_log=df_log
             )
 
-            # ✅ download_button COM key único
             st.download_button(
                 "Exportar relatório (Excel)",
                 data=relatorio_bytes,
@@ -557,7 +579,6 @@ if uploaded_files2:
                 with cols[i]:
                     st.metric(categoria, formatar_moeda(valor_categoria))
 
-                    # ✅ expander interno sem key, mas com label único
                     with st.expander(f"Ver composição — {categoria} — arquivo #{idx+1}"):
                         df_cat = df_class[df_class["Categoria"] == categoria].copy()
                         soma_check = float(df_cat["Valor Saldo"].sum())
@@ -609,23 +630,30 @@ else:
 # =========================================================
 # EXPORTAÇÃO GLOBAL CONSOLIDADA
 # =========================================================
-
 if uploaded_files1 or uploaded_files2:
 
     st.header("📥 Exportação Consolidada Geral")
 
     def gerar_excel_consolidado():
-
         output = BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
-            if uploaded_files1 and resumo_cotistas:
+            if uploaded_files1 and len(resumo_cotistas) > 0:
                 df_cot = pd.DataFrame(resumo_cotistas)
                 df_cot.to_excel(writer, sheet_name="Resumo_Cotistas", index=False)
 
-            if uploaded_files2 and resumo_consolidado:
-                df_bal = pd.DataFrame(resumo_consolidado)
+            if uploaded_files2 and len(resumo_consolidado) > 0:
+                df_bal = pd.DataFrame(resumo_consolidado).copy()
+
+                # formata algumas colunas no consolidado
+                if "Total TVM" in df_bal.columns:
+                    df_bal["Total TVM (fmt)"] = df_bal["Total TVM"].apply(formatar_moeda)
+
+                for col in ["Derivativos (R$)", "Títulos Públicos (R$)", "Títulos Privados (R$)"]:
+                    if col in df_bal.columns:
+                        df_bal[f"{col} (fmt)"] = df_bal[col].apply(formatar_moeda)
+
                 df_bal.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
 
         return output.getvalue()
