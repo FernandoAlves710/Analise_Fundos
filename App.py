@@ -665,7 +665,7 @@ if uploaded_files1 or uploaded_files2:
 
     df_out.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
 
-    return output.getvalue()
+     return output.getvalue()
 
     st.download_button(
         "Exportar Relatório Consolidado Completo",
