@@ -1,0 +1,37 @@
+{
+  "Derivativos": [
+    "FUTURO",
+    "OPÇÃO",
+    "SWAP",
+    "DERIVAT"
+  ],
+  "Títulos Públicos": [
+    "TESOURO",
+    "LFT",
+    "LTN",
+    "NTN"
+  ],
+  "Títulos Privados": [
+    "DEBÊNTURE",
+    "DEBENTURE",
+    "CDB",
+    "CRI",
+    "CRA",
+    "FUNDO",
+    "AÇÃO",
+    "ACAO",
+    "BDR",
+    "LCI",
+    "LCA",
+    "RENDA VARIAVEL",
+    "RENDA VARIÁVEL",
+    "CERTIFICADOS DE DEPÓSITO BANCÁRIO",
+    "CERTIFICADOS DE DEPOSITO BANCARIO",
+    "DEPÓSITO BANCÁRIO",
+    "DEPOSITO BANCARIO",
+    "LETRA FINANCEIRA",
+    "LETRAS FINANCEIRAS",
+    "LETRA FINANCEIRA SUBORDINADA",
+    "LETRAS FINANCEIRAS SUBORDINADAS"
+  ]
+}
