@@ -159,10 +159,11 @@ st.sidebar.download_button(
     "Baixar configuração padrão do banco",
     data=exportar_config(CONFIG_PADRAO_BANCO),
     file_name="config_padrao_banco.json",
-    mime="application/json"
+    mime="application/json",
+    key="download_cfg_padrao"
 )
 
-cfg_upload = st.sidebar.file_uploader("Importar configuração do time", type=["json"])
+cfg_upload = st.sidebar.file_uploader("Importar configuração do time", type=["json"], key="upload_cfg_time")
 if cfg_upload is not None:
     data, err = carregar_config(cfg_upload)
     if err:
@@ -175,17 +176,20 @@ st.sidebar.markdown("**Adicionar termos (extras)**")
 txt_der_add = st.sidebar.text_area(
     "Derivativos — adicionar (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Derivativos"]),
-    height=80
+    height=80,
+    key="txt_der_add"
 )
 txt_pub_add = st.sidebar.text_area(
     "Títulos Públicos — adicionar (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Públicos"]),
-    height=80
+    height=80,
+    key="txt_pub_add"
 )
 txt_priv_add = st.sidebar.text_area(
     "Títulos Privados — adicionar (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Títulos Privados"]),
-    height=100
+    height=100,
+    key="txt_priv_add"
 )
 
 st.sidebar.markdown("**Excluir termos (por categoria)**")
@@ -193,20 +197,23 @@ st.sidebar.caption("Se um termo estiver aqui, contas classificadas nessa categor
 txt_der_exc = st.sidebar.text_area(
     "Derivativos — excluir (1 por linha)",
     value=list_to_text(st.session_state.excluir_por_categoria["Derivativos"]),
-    height=80
+    height=80,
+    key="txt_der_exc"
 )
 txt_pub_exc = st.sidebar.text_area(
     "Títulos Públicos — excluir (1 por linha)",
     value=list_to_text(st.session_state.excluir_por_categoria["Títulos Públicos"]),
-    height=80
+    height=80,
+    key="txt_pub_exc"
 )
 txt_priv_exc = st.sidebar.text_area(
     "Títulos Privados — excluir (1 por linha)",
     value=list_to_text(st.session_state.excluir_por_categoria["Títulos Privados"]),
-    height=100
+    height=100,
+    key="txt_priv_exc"
 )
 
-if st.sidebar.button("Aplicar termos"):
+if st.sidebar.button("Aplicar termos", key="btn_aplicar_termos"):
     st.session_state.termos_extras["Derivativos"] = text_to_list(txt_der_add)
     st.session_state.termos_extras["Títulos Públicos"] = text_to_list(txt_pub_add)
     st.session_state.termos_extras["Títulos Privados"] = text_to_list(txt_priv_add)
@@ -221,20 +228,23 @@ st.sidebar.download_button(
     "Exportar configuração do time",
     data=exportar_config(st.session_state.termos_extras),
     file_name="config_time.json",
-    mime="application/json"
+    mime="application/json",
+    key="download_cfg_time"
 )
 
 st.sidebar.divider()
 st.sidebar.subheader("Modo avançado (só se necessário)")
 st.sidebar.caption("Exclui blocos de contas por prefixo (1 por linha). Ex.: 1361")
-exclusoes_texto = st.sidebar.text_area("Prefixos para excluir", value="", height=90)
+
+exclusoes_texto = st.sidebar.text_area("Prefixos para excluir", value="", height=90, key="txt_prefixos_excluir")
 PREFIXOS_EXCLUIR = [p.strip() for p in exclusoes_texto.split("\n") if p.strip()]
 
 TOL_ABS = st.sidebar.number_input(
     "Tolerância p/ identificar totalizadoras (R$)",
     min_value=0.0,
     value=1.0,
-    step=0.5
+    step=0.5,
+    key="num_tol_abs"
 )
 
 # =========================================================
@@ -279,10 +289,6 @@ def aplicar_exclusoes_prefixo(df: pd.DataFrame) -> pd.DataFrame:
     return df[mask].copy()
 
 def aplicar_exclusoes_por_categoria(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Remove linhas conforme termos de exclusão por categoria.
-    Só remove se a linha já estiver classificada naquela categoria.
-    """
     if df.empty:
         return df, pd.DataFrame()
 
@@ -299,7 +305,6 @@ def aplicar_exclusoes_por_categoria(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.
 
         desc_series = df.loc[mask_cat, "Descrição da Conta"].astype(str).str.upper()
 
-        # marca para exclusão se qualquer termo aparecer
         excluir_idx = []
         for termo in termos:
             hits = desc_series.str.contains(termo, na=False)
@@ -325,7 +330,7 @@ def aplicar_exclusoes_por_categoria(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.
     return df_out, df_log
 
 # =========================================================
-# COLAPSO HÍBRIDO DE TOTALIZADORAS (ambíguas removidas; totalizadoras tratadas)
+# COLAPSO HÍBRIDO DE TOTALIZADORAS
 # =========================================================
 def chave_grupo_cosif(conta: str) -> str:
     c = str(conta).strip()
@@ -344,7 +349,6 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
 
     for grupo, g in work.groupby("Grupo", dropna=False):
 
-        # Remove ambíguas sempre (para evitar dupla contagem em garantias/bolsa etc.)
         amb_mask = g["Descrição da Conta"].apply(eh_ambigua)
         if amb_mask.any():
             g_amb = g[amb_mask].copy()
@@ -386,7 +390,6 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
         cat_total = classificar(desc_total)
         filhos = g.drop(index=totalizador_idx)
 
-        # Se o totalizador tem classificação clara → mantém e ignora filhos
         if cat_total is not None:
             logs.append({
                 "Conta": totalizador["Conta"],
@@ -397,7 +400,6 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
             })
             out_rows.append(pd.DataFrame([totalizador]))
         else:
-            # Caso inconclusivo → remove totalizador e usa filhos
             logs.append({
                 "Conta": totalizador["Conta"],
                 "Descrição": totalizador["Descrição da Conta"],
@@ -413,7 +415,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     return df_out, df_log
 
 # =========================================================
-# PARTE 1 – COTISTAS & PATRIMÔNIO (cards)
+# PARTE 1 – COTISTAS & PATRIMÔNIO
 # =========================================================
 st.header("1. Cotistas e Patrimônio Líquido")
 
@@ -468,7 +470,7 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – BALANCETE (MULTI-UPLOAD) + EXPORT
+# PARTE 2 – BALANCETE (MULTI-UPLOAD)
 # =========================================================
 st.header("2. Exposição Econômica da Carteira")
 
@@ -505,25 +507,22 @@ def processar_balancete(df2: pd.DataFrame):
         (df2["Valor Saldo"] != 0)
     ].copy()
 
-    # Exclusões por prefixo (modo avançado)
     df_tvm = aplicar_exclusoes_prefixo(df_tvm)
 
-    # Colapso totalizadoras/ambíguas
     df_sem_dupla, df_log_regras = colapsar_totalizadoras_hibrido(df_tvm, tol_abs=TOL_ABS)
 
-    # Classificação
     df_sem_dupla["Categoria"] = df_sem_dupla["Descrição da Conta"].apply(classificar)
 
-    # Exclusões por categoria (por descrição)
     df_filtrado, df_log_exc = aplicar_exclusoes_por_categoria(df_sem_dupla)
 
-    # Logs combinados
     df_log = pd.concat(
         [df_log_regras, df_log_exc],
         ignore_index=True
-    ) if (df_log_regras is not None and not df_log_regras.empty) or (df_log_exc is not None and not df_log_exc.empty) else pd.DataFrame()
+    ) if (
+        (df_log_regras is not None and not df_log_regras.empty) or
+        (df_log_exc is not None and not df_log_exc.empty)
+    ) else pd.DataFrame()
 
-    # Separar classificadas / não classificadas
     df_class = df_filtrado[df_filtrado["Categoria"].notna()].copy()
     df_nao_class = df_filtrado[df_filtrado["Categoria"].isna()].copy()
 
@@ -544,7 +543,7 @@ def processar_balancete(df2: pd.DataFrame):
 if uploaded_files2:
     resumo_consolidado = []
 
-    for f in uploaded_files2:
+    for idx, f in enumerate(uploaded_files2):
         df2 = pd.read_excel(f)
         total_tvm, df_class, df_nao_class, consolidado, df_log, err = processar_balancete(df2)
 
@@ -552,7 +551,8 @@ if uploaded_files2:
             st.error(f"[{f.name}] {err}")
             continue
 
-        with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
+        # ✅ key único no expander
+        with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1), key=f"exp_{idx}_{f.name}"):
             st.subheader("Resumo Executivo")
 
             # Exportar relatório
@@ -567,16 +567,17 @@ if uploaded_files2:
                 df_log=df_log
             )
 
+            # ✅ key único no download_button
             st.download_button(
                 "Exportar relatório (Excel)",
                 data=relatorio_bytes,
                 file_name=nome_relatorio,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_{idx}_{f.name}"
             )
 
             st.divider()
 
-            # Métricas por categoria com composição
             cols = st.columns(max(1, len(consolidado)))
             for i in range(len(consolidado)):
                 categoria = str(consolidado.iloc[i]["Categoria"])
@@ -584,7 +585,8 @@ if uploaded_files2:
 
                 with cols[i]:
                     st.metric(categoria, formatar_moeda(valor_categoria))
-                    with st.expander("Ver composição"):
+                    # ✅ key único no expander interno
+                    with st.expander("Ver composição", key=f"comp_{idx}_{categoria}_{i}"):
                         df_cat = df_class[df_class["Categoria"] == categoria].copy()
                         soma_check = float(df_cat["Valor Saldo"].sum())
                         st.write("Soma das contas consideradas:", formatar_moeda(soma_check))
@@ -593,7 +595,6 @@ if uploaded_files2:
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
                         st.dataframe(df_show[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            # Total + Pizza ao lado (pequena)
             st.divider()
             col_total, col_pizza = st.columns([1, 1])
 
@@ -612,28 +613,24 @@ if uploaded_files2:
 
             st.divider()
 
-            # Log
             if df_log is not None and not df_log.empty:
-                with st.expander("Log de regras aplicadas"):
+                with st.expander("Log de regras aplicadas", key=f"log_{idx}_{f.name}"):
                     df_log_show = df_log.copy()
                     if "Valor" in df_log_show.columns:
                         df_log_show["Valor"] = df_log_show["Valor"].apply(formatar_moeda)
                     st.dataframe(df_log_show, use_container_width=True)
 
-            # Não classificadas
             if not df_nao_class.empty:
                 st.warning("Contas não classificadas")
                 df_nc = df_nao_class.sort_values("Valor Saldo", ascending=False).copy()
                 df_nc["Valor Saldo"] = df_nc["Valor Saldo"].apply(formatar_moeda)
                 st.dataframe(df_nc[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            # Tabela final
             st.subheader("Contas consideradas na análise")
             df_final = df_class.copy()
             df_final["Valor Saldo"] = df_final["Valor Saldo"].apply(formatar_moeda)
             st.dataframe(df_final[["Conta", "Descrição da Conta", "Categoria", "Valor Saldo"]], use_container_width=True)
 
-        # Resumo consolidado
         row = {"Arquivo": f.name, "Total TVM": total_tvm}
         for _, r in consolidado.iterrows():
             row[str(r["Categoria"])] = float(r["Valor Saldo"])
