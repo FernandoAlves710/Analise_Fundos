@@ -5,6 +5,8 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
+from io import BytesIO
+from datetime import datetime
 
 # =========================================================
 # CONFIGURAÇÃO (PRIMEIRA CHAMADA STREAMLIT)
@@ -56,6 +58,69 @@ def list_to_text(lst):
 
 def text_to_list(txt):
     return [t.strip().upper() for t in txt.split("\n") if t.strip()]
+
+def excel_bytes_relatorio(
+    arquivo_nome: str,
+    total_tvm: float,
+    consolidado: pd.DataFrame,
+    df_consideradas: pd.DataFrame,
+    df_nao_classificadas: pd.DataFrame,
+    df_log: pd.DataFrame
+) -> bytes:
+    """
+    Gera um .xlsx com abas:
+      - Resumo
+      - Contas_Consideradas
+      - Nao_Classificadas
+      - Log_Regras
+    """
+    output = BytesIO()
+
+    # Aba Resumo
+    resumo = consolidado.copy()
+    if not resumo.empty:
+        resumo["Valor (R$)"] = resumo["Valor Saldo"].apply(formatar_moeda)
+        resumo["Percentual"] = resumo["Percentual"].apply(lambda x: f"{float(x):.2f}%")
+        resumo = resumo[["Categoria", "Valor (R$)", "Percentual"]]
+
+    resumo_total = pd.DataFrame(
+        [{"Arquivo": arquivo_nome, "Total TVM": formatar_moeda(total_tvm)}]
+    )
+
+    # Formata contas consideradas
+    cons = df_consideradas.copy()
+    if not cons.empty:
+        cons = cons[["Conta", "Descrição da Conta", "Categoria", "Valor Saldo"]].copy()
+        cons["Valor Saldo"] = cons["Valor Saldo"].apply(formatar_moeda)
+
+    # Formata não classificadas
+    nc = df_nao_classificadas.copy()
+    if not nc.empty:
+        nc = nc[["Conta", "Descrição da Conta", "Valor Saldo"]].copy()
+        nc["Valor Saldo"] = nc["Valor Saldo"].apply(formatar_moeda)
+
+    # Formata log
+    lg = df_log.copy()
+    if lg is not None and not lg.empty:
+        lg = lg.copy()
+        if "Valor" in lg.columns:
+            lg["Valor"] = lg["Valor"].apply(formatar_moeda)
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        resumo_total.to_excel(writer, index=False, sheet_name="Resumo", startrow=0)
+        if resumo is not None and not resumo.empty:
+            resumo.to_excel(writer, index=False, sheet_name="Resumo", startrow=3)
+
+        cons.to_excel(writer, index=False, sheet_name="Contas_Consideradas")
+        nc.to_excel(writer, index=False, sheet_name="Nao_Classificadas")
+        if lg is not None and not lg.empty:
+            lg.to_excel(writer, index=False, sheet_name="Log_Regras")
+        else:
+            pd.DataFrame([{"Info": "Sem regras registradas no log."}]).to_excel(
+                writer, index=False, sheet_name="Log_Regras"
+            )
+
+    return output.getvalue()
 
 # =========================================================
 # CONFIGURAÇÃO PADRÃO DO BANCO (ARQUIVO OFICIAL)
@@ -368,10 +433,17 @@ if uploaded_file1:
     st.divider()
 
 # =========================================================
-# PARTE 2 – EXPOSIÇÃO ECONÔMICA + MULTI-UPLOAD
+# PARTE 2 – EXPOSIÇÃO ECONÔMICA + MULTI-UPLOAD + AJUDA RÁPIDA
 # =========================================================
 
 st.header("2. Exposição Econômica da Carteira")
+
+st.info(
+    "Ajuda rápida:\n"
+    "- Se aparecer **“Contas não classificadas”**, adicione palavras-chave na barra lateral em **Configuração do time**.\n"
+    "- Use **Modo avançado** apenas se precisar excluir um bloco inteiro por prefixo.\n"
+    "- O relatório pode ser exportado em Excel (Resumo, Contas consideradas, Não classificadas e Log)."
+)
 
 uploaded_files2 = st.file_uploader(
     "Envie uma ou mais planilhas de Balancete (.xlsx)",
@@ -430,6 +502,27 @@ if uploaded_files2:
         with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1)):
             st.subheader("Resumo Executivo")
 
+            # Botão de export (relatório Excel do arquivo)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nome_relatorio = f"Relatorio_{f.name.replace('.xlsx','')}_{ts}.xlsx"
+            relatorio_bytes = excel_bytes_relatorio(
+                arquivo_nome=f.name,
+                total_tvm=total_tvm,
+                consolidado=consolidado,
+                df_consideradas=df_class,
+                df_nao_classificadas=df_nao_class,
+                df_log=df_log if df_log is not None else pd.DataFrame()
+            )
+
+            st.download_button(
+                "Exportar relatório (Excel)",
+                data=relatorio_bytes,
+                file_name=nome_relatorio,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            st.divider()
+
             # Métricas
             cols = st.columns(max(1, len(consolidado)))
             for i in range(len(consolidado)):
@@ -447,7 +540,7 @@ if uploaded_files2:
                         df_show["Valor Saldo"] = df_show["Valor Saldo"].apply(formatar_moeda)
                         st.dataframe(df_show[["Conta", "Descrição da Conta", "Valor Saldo"]], use_container_width=True)
 
-            # Total + Pizza ao lado (PIZZA METADE DO TAMANHO ANTERIOR)
+            # Total + Pizza ao lado (pizza bem pequena)
             st.divider()
             col_total, col_pizza = st.columns([1, 1])
 
@@ -455,7 +548,6 @@ if uploaded_files2:
                 st.metric("Total TVM", formatar_moeda(total_tvm))
 
             with col_pizza:
-                # antes estava (3.2, 3.2); agora ~metade
                 fig1, ax1 = plt.subplots(figsize=(1.6, 1.6))
                 ax1.pie(
                     consolidado["Percentual"],
