@@ -644,17 +644,26 @@ if uploaded_files1 or uploaded_files2:
                 df_cot.to_excel(writer, sheet_name="Resumo_Cotistas", index=False)
 
             if uploaded_files2 and len(resumo_consolidado) > 0:
-                df_bal = pd.DataFrame(resumo_consolidado).copy()
+    df_bal = pd.DataFrame(resumo_consolidado).copy()
 
-                # formata algumas colunas no consolidado
-                if "Total TVM" in df_bal.columns:
-                    df_bal["Total TVM (fmt)"] = df_bal["Total TVM"].apply(formatar_moeda)
+    # cria somente colunas formatadas (fmt)
+    df_out = pd.DataFrame()
+    if "Arquivo" in df_bal.columns:
+        df_out["Arquivo"] = df_bal["Arquivo"]
 
-                for col in ["Derivativos (R$)", "Títulos Públicos (R$)", "Títulos Privados (R$)"]:
-                    if col in df_bal.columns:
-                        df_bal[f"{col} (fmt)"] = df_bal[col].apply(formatar_moeda)
+    if "Total TVM" in df_bal.columns:
+        df_out["Total TVM"] = df_bal["Total TVM"].apply(formatar_moeda)
 
-                df_bal.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
+    col_map = [
+        ("Derivativos (R$)", "Derivativos"),
+        ("Títulos Públicos (R$)", "Títulos Públicos"),
+        ("Títulos Privados (R$)", "Títulos Privados"),
+    ]
+    for col_in, col_out in col_map:
+        if col_in in df_bal.columns:
+            df_out[col_out] = df_bal[col_in].apply(formatar_moeda)
+
+    df_out.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
 
         return output.getvalue()
 
