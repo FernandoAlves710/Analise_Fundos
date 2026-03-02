@@ -12,7 +12,7 @@ from datetime import datetime
 # CONFIGURAÇÃO (PRIMEIRA CHAMADA STREAMLIT)
 # =========================================================
 st.set_page_config(
-    page_title="Análise Profissional de Fundos",
+    page_title="Análise de Fundos",
     layout="wide"
 )
 
