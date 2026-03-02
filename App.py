@@ -172,7 +172,7 @@ if cfg_upload is not None:
         st.session_state.termos_extras = data
         st.sidebar.success("Configuração importada.")
 
-st.sidebar.markdown("**Adicionar termos (extras)**")
+st.sidebar.markdown("*Adicionar termos (extras)*")
 txt_der_add = st.sidebar.text_area(
     "Derivativos — adicionar (1 por linha)",
     value=list_to_text(st.session_state.termos_extras["Derivativos"]),
@@ -192,7 +192,7 @@ txt_priv_add = st.sidebar.text_area(
     key="txt_priv_add"
 )
 
-st.sidebar.markdown("**Excluir termos (por categoria)**")
+st.sidebar.markdown("*Excluir termos (por categoria)*")
 st.sidebar.caption("Se um termo estiver aqui, contas classificadas nessa categoria serão removidas do cálculo.")
 txt_der_exc = st.sidebar.text_area(
     "Derivativos — excluir (1 por linha)",
@@ -223,14 +223,6 @@ if st.sidebar.button("Aplicar termos", key="btn_aplicar_termos"):
     st.session_state.excluir_por_categoria["Títulos Privados"] = text_to_list(txt_priv_exc)
 
     st.sidebar.success("Configurações aplicadas.")
-
-st.sidebar.download_button(
-    "Exportar configuração do time",
-    data=exportar_config(st.session_state.termos_extras),
-    file_name="config_time.json",
-    mime="application/json",
-    key="download_cfg_time"
-)
 
 st.sidebar.divider()
 st.sidebar.subheader("Modo avançado (só se necessário)")
@@ -309,8 +301,7 @@ def aplicar_exclusoes_por_categoria(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.
         for termo in termos:
             hits = desc_series.str.contains(termo, na=False)
             if hits.any():
-                idxs = hits[hits].index.tolist()
-                excluir_idx.extend(idxs)
+                excluir_idx.extend(hits[hits].index.tolist())
 
         if excluir_idx:
             excluir_idx = list(set(excluir_idx))
@@ -347,14 +338,11 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     logs = []
     out_rows = []
 
-    for grupo, g in work.groupby("Grupo", dropna=False):
+    for _, g in work.groupby("Grupo", dropna=False):
 
         amb_mask = g["Descrição da Conta"].apply(eh_ambigua)
         if amb_mask.any():
-            g_amb = g[amb_mask].copy()
-            g_rest = g[~amb_mask].copy()
-
-            for _, row in g_amb.iterrows():
+            for _, row in g[amb_mask].iterrows():
                 logs.append({
                     "Conta": row["Conta"],
                     "Descrição": row["Descrição da Conta"],
@@ -362,8 +350,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
                     "Regra": "Ambígua",
                     "Decisão": "Removida"
                 })
-
-            g = g_rest
+            g = g[~amb_mask].copy()
             if g.empty:
                 continue
 
@@ -386,8 +373,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
             continue
 
         totalizador = g.loc[totalizador_idx]
-        desc_total = str(totalizador["Descrição da Conta"])
-        cat_total = classificar(desc_total)
+        cat_total = classificar(str(totalizador["Descrição da Conta"]))
         filhos = g.drop(index=totalizador_idx)
 
         if cat_total is not None:
@@ -411,8 +397,7 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
 
     df_out = pd.concat(out_rows, ignore_index=True) if out_rows else work.iloc[0:0].copy()
     df_out = df_out.drop(columns=["Grupo"], errors="ignore")
-    df_log = pd.DataFrame(logs)
-    return df_out, df_log
+    return df_out, pd.DataFrame(logs)
 
 # =========================================================
 # PARTE 1 – COTISTAS & PATRIMÔNIO
@@ -474,14 +459,6 @@ if uploaded_file1:
 # =========================================================
 st.header("2. Exposição Econômica da Carteira")
 
-st.info(
-    "Ajuda rápida:\n"
-    "- Se aparecer **“Contas não classificadas”**, adicione termos em **Configuração do time**.\n"
-    "- Se uma conta estiver entrando indevidamente em uma categoria, use **Excluir termos (por categoria)**.\n"
-    "- **Modo avançado** é só para excluir por prefixo de código.\n"
-    "- Você pode exportar um relatório em Excel por arquivo."
-)
-
 uploaded_files2 = st.file_uploader(
     "Envie uma ou mais planilhas de Balancete (.xlsx)",
     type=["xlsx"],
@@ -533,16 +510,11 @@ def processar_balancete(df2: pd.DataFrame):
         .sort_values("Valor Saldo", ascending=False)
     )
 
-    if not consolidado.empty and total_tvm != 0:
-        consolidado["Percentual"] = (consolidado["Valor Saldo"] / total_tvm) * 100
-    else:
-        consolidado["Percentual"] = 0.0
+    consolidado["Percentual"] = (consolidado["Valor Saldo"] / total_tvm) * 100 if total_tvm else 0.0
 
     return total_tvm, df_class, df_nao_class, consolidado, df_log, None
 
 if uploaded_files2:
-    resumo_consolidado = []
-
     for idx, f in enumerate(uploaded_files2):
         df2 = pd.read_excel(f)
         total_tvm, df_class, df_nao_class, consolidado, df_log, err = processar_balancete(df2)
@@ -551,15 +523,14 @@ if uploaded_files2:
             st.error(f"[{f.name}] {err}")
             continue
 
-        # ✅ key único no expander
-        with st.expander(f"Balancete: {f.name}", expanded=(len(uploaded_files2) == 1), key=f"exp_{idx}_{f.name}"):
+        # ✅ expander sem key, mas com label único
+        with st.expander(f"Balancete #{idx+1} — {f.name}", expanded=(len(uploaded_files2) == 1)):
             st.subheader("Resumo Executivo")
 
-            # Exportar relatório
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            nome_relatorio = f"Relatorio_{f.name.replace('.xlsx','')}_{ts}.xlsx"
+            nome_relatorio = f"Relatorio_{f.name.replace('.xlsx','')}{idx+1}{ts}.xlsx"
             relatorio_bytes = excel_bytes_relatorio(
-                arquivo_nome=f.name,
+                arquivo_nome=f"{f.name} (#{idx+1})",
                 total_tvm=total_tvm,
                 consolidado=consolidado,
                 df_consideradas=df_class,
@@ -567,13 +538,13 @@ if uploaded_files2:
                 df_log=df_log
             )
 
-            # ✅ key único no download_button
+            # ✅ download_button COM key único
             st.download_button(
                 "Exportar relatório (Excel)",
                 data=relatorio_bytes,
                 file_name=nome_relatorio,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_{idx}_{f.name}"
+                key=f"dl_{idx}{f.name}{ts}"
             )
 
             st.divider()
@@ -585,8 +556,9 @@ if uploaded_files2:
 
                 with cols[i]:
                     st.metric(categoria, formatar_moeda(valor_categoria))
-                    # ✅ key único no expander interno
-                    with st.expander("Ver composição", key=f"comp_{idx}_{categoria}_{i}"):
+
+                    # ✅ expander interno sem key, mas com label único
+                    with st.expander(f"Ver composição — {categoria} — arquivo #{idx+1}"):
                         df_cat = df_class[df_class["Categoria"] == categoria].copy()
                         soma_check = float(df_cat["Valor Saldo"].sum())
                         st.write("Soma das contas consideradas:", formatar_moeda(soma_check))
@@ -614,7 +586,7 @@ if uploaded_files2:
             st.divider()
 
             if df_log is not None and not df_log.empty:
-                with st.expander("Log de regras aplicadas", key=f"log_{idx}_{f.name}"):
+                with st.expander(f"Log de regras aplicadas — arquivo #{idx+1}"):
                     df_log_show = df_log.copy()
                     if "Valor" in df_log_show.columns:
                         df_log_show["Valor"] = df_log_show["Valor"].apply(formatar_moeda)
@@ -630,27 +602,6 @@ if uploaded_files2:
             df_final = df_class.copy()
             df_final["Valor Saldo"] = df_final["Valor Saldo"].apply(formatar_moeda)
             st.dataframe(df_final[["Conta", "Descrição da Conta", "Categoria", "Valor Saldo"]], use_container_width=True)
-
-        row = {"Arquivo": f.name, "Total TVM": total_tvm}
-        for _, r in consolidado.iterrows():
-            row[str(r["Categoria"])] = float(r["Valor Saldo"])
-            row[f"% {str(r['Categoria'])}"] = float(r["Percentual"])
-        resumo_consolidado.append(row)
-
-    if resumo_consolidado:
-        st.divider()
-        st.header("Resumo Consolidado")
-
-        df_resumo = pd.DataFrame(resumo_consolidado).fillna(0)
-
-        for c in ["Total TVM", "Títulos Públicos", "Títulos Privados", "Derivativos"]:
-            if c in df_resumo.columns:
-                df_resumo[c] = df_resumo[c].apply(formatar_moeda)
-
-        for c in [c for c in df_resumo.columns if c.startswith("% ")]:
-            df_resumo[c] = df_resumo[c].apply(lambda x: f"{float(x):.2f}%")
-
-        st.dataframe(df_resumo, use_container_width=True)
 
 else:
     st.info("Envie uma ou mais planilhas de balancete para iniciar a análise.")
