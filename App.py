@@ -635,37 +635,46 @@ if uploaded_files1 or uploaded_files2:
     st.header("📥 Exportação Consolidada Geral")
 
     def gerar_excel_consolidado():
+
         output = BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
+            # -----------------------------------------
+            # Resumo Cotistas
+            # -----------------------------------------
             if uploaded_files1 and len(resumo_cotistas) > 0:
                 df_cot = pd.DataFrame(resumo_cotistas)
                 df_cot.to_excel(writer, sheet_name="Resumo_Cotistas", index=False)
 
+            # -----------------------------------------
+            # Resumo Balancetes (somente colunas formatadas)
+            # -----------------------------------------
             if uploaded_files2 and len(resumo_consolidado) > 0:
+
                 df_bal = pd.DataFrame(resumo_consolidado).copy()
 
-    # cria somente colunas formatadas (fmt)
-    df_out = pd.DataFrame()
-    if "Arquivo" in df_bal.columns:
-        df_out["Arquivo"] = df_bal["Arquivo"]
+                df_out = pd.DataFrame()
 
-    if "Total TVM" in df_bal.columns:
-        df_out["Total TVM"] = df_bal["Total TVM"].apply(formatar_moeda)
+                if "Arquivo" in df_bal.columns:
+                    df_out["Arquivo"] = df_bal["Arquivo"]
 
-    col_map = [
-        ("Derivativos (R$)", "Derivativos"),
-        ("Títulos Públicos (R$)", "Títulos Públicos"),
-        ("Títulos Privados (R$)", "Títulos Privados"),
-    ]
-    for col_in, col_out in col_map:
-        if col_in in df_bal.columns:
-            df_out[col_out] = df_bal[col_in].apply(formatar_moeda)
+                if "Total TVM" in df_bal.columns:
+                    df_out["Total TVM"] = df_bal["Total TVM"].apply(formatar_moeda)
 
-    df_out.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
+                col_map = [
+                    ("Derivativos (R$)", "Derivativos"),
+                    ("Títulos Públicos (R$)", "Títulos Públicos"),
+                    ("Títulos Privados (R$)", "Títulos Privados"),
+                ]
 
-     return output.getvalue()
+                for col_in, col_out in col_map:
+                    if col_in in df_bal.columns:
+                        df_out[col_out] = df_bal[col_in].apply(formatar_moeda)
+
+                df_out.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
+
+        return output.getvalue()
 
     st.download_button(
         "Exportar Relatório Consolidado Completo",
