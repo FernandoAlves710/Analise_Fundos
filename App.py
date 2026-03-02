@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Análise Profissional de Fundos de Investimento")
+st.title("Análise de Fundos de Investimento")
 st.markdown("---")
 
 # =========================================================
