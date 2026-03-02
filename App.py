@@ -400,58 +400,58 @@ def colapsar_totalizadoras_hibrido(df: pd.DataFrame, tol_abs: float) -> tuple[pd
     return df_out, pd.DataFrame(logs)
 
 # =========================================================
-# PARTE 1 – COTISTAS & PATRIMÔNIO
+# PARTE 1 – COTISTAS & PATRIMÔNIO (MULTI-UPLOAD)
 # =========================================================
 st.header("1. Cotistas e Patrimônio Líquido")
 
-uploaded_file1 = st.file_uploader(
-    "Envie a planilha de Cotistas e Patrimônio Líquido (.xlsx)",
+uploaded_files1 = st.file_uploader(
+    "Envie uma ou mais planilhas de Cotistas e Patrimônio Líquido (.xlsx)",
     type=["xlsx"],
-    key="planilha1"
+    key="planilha1_multi",
+    accept_multiple_files=True
 )
 
-if uploaded_file1:
-    df1 = pd.read_excel(uploaded_file1)
-    df1.columns = df1.columns.str.strip().str.lower()
+resumo_cotistas = []
 
-    df1.rename(columns={
-        "patrimônio": "patrimonio",
-        "captação": "captacao",
-        "resgate": "resgate",
-        "cotistas": "cotistas"
-    }, inplace=True)
+if uploaded_files1:
+    for idx, file in enumerate(uploaded_files1):
 
-    for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
-        if col in df1.columns:
-            df1[col] = df1[col].apply(converter_valor_brasileiro)
+        df1 = pd.read_excel(file)
+        df1.columns = df1.columns.str.strip().str.lower()
 
-    patrimonio_final = df1["patrimonio"].iloc[0]
-    patrimonio_inicial = df1["patrimonio"].iloc[-1]
-    variacao_patrimonio = patrimonio_final - patrimonio_inicial
-    cotistas_finais = int(df1["cotistas"].iloc[0])
-    captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
+        df1.rename(columns={
+            "patrimônio": "patrimonio",
+            "captação": "captacao",
+            "resgate": "resgate",
+            "cotistas": "cotistas"
+        }, inplace=True)
 
-    def card(titulo, valor):
-        st.markdown(
-            f"""
-            <div style="padding:10px 0px;">
-                <div style="font-size:14px; color:gray;">{titulo}</div>
-                <div style="font-size:22px; font-weight:600;">{valor}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        for col in ["patrimonio", "captacao", "resgate", "cotistas"]:
+            if col in df1.columns:
+                df1[col] = df1[col].apply(converter_valor_brasileiro)
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        card("Cotistas (Final)", f"{cotistas_finais:,}".replace(",", "."))
-    with c2:
-        card("Patrimônio Final", formatar_moeda(patrimonio_final))
-    with c3:
-        card("Captação Líquida", formatar_moeda(captacoes_liquidas))
-    with c4:
-        card("Variação do PL", formatar_moeda(variacao_patrimonio))
+        patrimonio_final = df1["patrimonio"].iloc[0]
+        patrimonio_inicial = df1["patrimonio"].iloc[-1]
+        variacao_patrimonio = patrimonio_final - patrimonio_inicial
+        cotistas_finais = int(df1["cotistas"].iloc[0])
+        captacoes_liquidas = df1["captacao"].sum() - df1["resgate"].sum()
 
+        resumo_cotistas.append({
+            "Arquivo": file.name,
+            "Cotistas Finais": cotistas_finais,
+            "Patrimônio Final": patrimonio_final,
+            "Captação Líquida": captacoes_liquidas,
+            "Variação PL": variacao_patrimonio
+        })
+
+    df_resumo_cotistas = pd.DataFrame(resumo_cotistas)
+
+    df_display = df_resumo_cotistas.copy()
+    df_display["Patrimônio Final"] = df_display["Patrimônio Final"].apply(formatar_moeda)
+    df_display["Captação Líquida"] = df_display["Captação Líquida"].apply(formatar_moeda)
+    df_display["Variação PL"] = df_display["Variação PL"].apply(formatar_moeda)
+
+    st.dataframe(df_display, use_container_width=True)
     st.divider()
 
 # =========================================================
@@ -605,3 +605,35 @@ if uploaded_files2:
 
 else:
     st.info("Envie uma ou mais planilhas de balancete para iniciar a análise.")
+
+# =========================================================
+# EXPORTAÇÃO GLOBAL CONSOLIDADA
+# =========================================================
+
+if uploaded_files1 or uploaded_files2:
+
+    st.header("📥 Exportação Consolidada Geral")
+
+    def gerar_excel_consolidado():
+
+        output = BytesIO()
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+
+            if uploaded_files1 and resumo_cotistas:
+                df_cot = pd.DataFrame(resumo_cotistas)
+                df_cot.to_excel(writer, sheet_name="Resumo_Cotistas", index=False)
+
+            if uploaded_files2 and resumo_consolidado:
+                df_bal = pd.DataFrame(resumo_consolidado)
+                df_bal.to_excel(writer, sheet_name="Resumo_Balancetes", index=False)
+
+        return output.getvalue()
+
+    st.download_button(
+        "Exportar Relatório Consolidado Completo",
+        data=gerar_excel_consolidado(),
+        file_name="Relatorio_Consolidado_Geral.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="download_consolidado_geral"
+    )
