@@ -12,11 +12,11 @@ from datetime import datetime
 # CONFIGURAÇÃO
 # =========================================================
 st.set_page_config(
-    page_title="Análise Profissional de Fundos",
+    page_title="Análise de Fundos",
     layout="wide"
 )
 
-st.title("Análise Profissional de Fundos de Investimento")
+st.title("Análise de Fundos de Investimento")
 st.markdown("---")
 
 # =========================================================
